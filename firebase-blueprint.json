@@ -1,0 +1,109 @@
+{
+  "entities": {
+    "Employee": {
+      "title": "Employee",
+      "description": "Central authoritative identity anchor for employees in HR360",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "pattern": "^EMP[0-9]{3,6}$" },
+        "firstName": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "lastName": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "email": { "type": "string", "format": "email", "maxLength": 150 },
+        "department": { "type": "string", "maxLength": 100 },
+        "designation": { "type": "string", "maxLength": 100 },
+        "managerId": { "type": "string", "maxLength": 50 },
+        "status": {
+          "type": "string",
+          "enum": ["ONBOARDING", "ACTIVE", "INACTIVE", "TERMINATED"]
+        },
+        "joiningDate": { "type": "string" },
+        "compensation": {
+          "type": "object",
+          "properties": {
+            "basic": { "type": "number" },
+            "allowances": { "type": "number" }
+          },
+          "required": ["basic", "allowances"]
+        }
+      },
+      "required": ["id", "firstName", "lastName", "email", "department", "designation", "status", "joiningDate", "compensation"]
+    },
+    "User": {
+      "title": "User",
+      "description": "User account linking Firebase Auth UID to Role and Employee identity",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "role": {
+          "type": "string",
+          "enum": ["Employee", "Manager", "HR Admin", "Super Admin", "Security Officer"]
+        },
+        "employeeId": { "type": "string" }
+      },
+      "required": ["uid", "email", "role", "employeeId"]
+    },
+    "ActivityLog": {
+      "title": "ActivityLog",
+      "description": "Append-only immutable system audit log entry",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "timestamp": { "type": "string" },
+        "userId": { "type": "string" },
+        "userRole": {
+          "type": "string",
+          "enum": ["Employee", "Manager", "HR Admin", "Super Admin", "Security Officer"]
+        },
+        "action": {
+          "type": "string",
+          "enum": ["CREATE", "UPDATE", "DELETE", "VERIFY"]
+        },
+        "module": { "type": "string" },
+        "recordId": { "type": "string" },
+        "metadata": { "type": "object" },
+        "result": {
+          "type": "string",
+          "enum": ["SUCCESS", "FAILED"]
+        }
+      },
+      "required": ["id", "timestamp", "userId", "userRole", "action", "module", "recordId", "result"]
+    },
+    "AccessRequest": {
+      "title": "AccessRequest",
+      "description": "Onboarding request from a user signing in via Google pending Super Admin clearance",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "photoURL": { "type": "string" },
+        "status": {
+          "type": "string",
+          "enum": ["PENDING", "APPROVED", "REJECTED"]
+        },
+        "role": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["uid", "name", "email", "status"]
+    }
+  },
+  "firestore": {
+    "/access_requests/{requestId}": {
+      "schema": { "$ref": "#/entities/AccessRequest" },
+      "description": "Shared access requests collection for pending Google sign-ins and Super Admin authorization"
+    },
+    "/employees/{employeeId}": {
+      "schema": { "$ref": "#/entities/Employee" },
+      "description": "Master employee repository accessed by HR Admins and Super Admins"
+    },
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "RBAC user accounts linking auth identities to roles and employee profiles"
+    },
+    "/activityLogs/{logId}": {
+      "schema": { "$ref": "#/entities/ActivityLog" },
+      "description": "Append-only security and operational audit trail"
+    }
+  }
+}

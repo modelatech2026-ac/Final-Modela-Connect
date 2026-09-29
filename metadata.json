@@ -1,0 +1,10 @@
+{
+  "name": "Remix Remix HRMS Modela",
+  "description": "A comprehensive, role-based HR management system featuring unified employee tracking, secure authentication, and a modern enterprise interface.",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

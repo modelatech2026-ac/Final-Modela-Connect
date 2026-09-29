@@ -1,0 +1,74 @@
+[
+  {
+    "id": "MOD001",
+    "firstName": "Sushoovan",
+    "lastName": "Das",
+    "joiningDate": "2024-01-15",
+    "designation": "Executive Director",
+    "phone": "+1 (555) 234-5678",
+    "department": "Executive Office",
+    "status": "ACTIVE",
+    "location": "San Francisco HQ",
+    "compensation": { "basic": 85000, "allowances": 25000 }
+  },
+  {
+    "id": "MOD002",
+    "firstName": "Alex",
+    "lastName": "Morgan",
+    "joiningDate": "2024-03-01",
+    "designation": "Head of Human Resources",
+    "phone": "+1 (555) 345-6789",
+    "department": "Human Resources",
+    "status": "ACTIVE",
+    "location": "San Francisco HQ",
+    "compensation": { "basic": 60000, "allowances": 18000 }
+  },
+  {
+    "id": "MOD003",
+    "firstName": "Marcus",
+    "lastName": "Vance",
+    "joiningDate": "2024-05-10",
+    "designation": "HR Operations Manager",
+    "phone": "+1 (555) 456-7890",
+    "department": "Human Resources",
+    "status": "ACTIVE",
+    "location": "New York Regional Office",
+    "compensation": { "basic": 48000, "allowances": 14000 }
+  },
+  {
+    "id": "MOD004",
+    "firstName": "Elena",
+    "lastName": "Rostova",
+    "joiningDate": "2024-08-20",
+    "designation": "Senior Software Engineer",
+    "phone": "+1 (555) 567-8901",
+    "department": "Engineering",
+    "status": "ACTIVE",
+    "location": "Remote - Seattle",
+    "compensation": { "basic": 52000, "allowances": 15000 }
+  },
+  {
+    "id": "MOD005",
+    "firstName": "Sourav",
+    "lastName": "Ganguly",
+    "joiningDate": "2024-09-01",
+    "designation": "Senior BIM Engineer",
+    "phone": "+1 (555) 678-9012",
+    "department": "Engineering",
+    "status": "ACTIVE",
+    "location": "San Francisco HQ",
+    "compensation": { "basic": 45000, "allowances": 12000 }
+  },
+  {
+    "id": "MOD006",
+    "firstName": "Pooja",
+    "lastName": "Sharma",
+    "joiningDate": "2024-10-15",
+    "designation": "MEP Designer",
+    "phone": "+1 (555) 789-0123",
+    "department": "Design",
+    "status": "ACTIVE",
+    "location": "San Francisco HQ",
+    "compensation": { "basic": 42000, "allowances": 11000 }
+  }
+]

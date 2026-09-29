@@ -1,0 +1,64 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isSuperAdmin() {
+      return (isSignedIn() && (
+        request.auth.token.email in ['modelatech2026@gmail.com', 'sushoovandas@gmail.com', 'YOUR_EXACT_GOOGLE_EMAIL@gmail.com'] ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['Super Admin', 'SUPER_ADMIN', 'SUPERADMIN'])
+      ));
+    }
+
+    function isHRAdmin() {
+      return isSuperAdmin() || (isSignedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['HR Admin', 'Super Admin']));
+    }
+
+    // Access Requests: Public/unauthenticated create with PENDING status, Super Admin full control
+    match /access_requests/{requestId} {
+      // Allow unauthenticated/pending users to create an access request with status: "PENDING"
+      allow create: if request.resource.data.status == "PENDING";
+      // Allow Super Admin full read/write/update/delete access, or applicant to re-sync pending status
+      allow update: if isSuperAdmin() || (resource.data.status == "PENDING" && request.resource.data.status == "PENDING") || (isSignedIn() && (request.auth.uid == requestId || request.auth.uid == resource.data.uid));
+      allow delete: if isSuperAdmin();
+      // Allow Super Admin to read all, or applicant user to read their own request
+      allow read: if isSuperAdmin() || (isSignedIn() && (request.auth.uid == requestId || request.auth.uid == resource.data.uid));
+    }
+
+    // Auxiliary pending_requests collection
+    match /pending_requests/{requestId} {
+      allow create: if request.resource.data.status == "PENDING";
+      allow read, write: if isSuperAdmin();
+    }
+
+    // User accounts
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow create: if request.resource.data.status == "PENDING" || isSuperAdmin() || (isSignedIn() && request.auth.uid == userId);
+      allow update: if isSuperAdmin() || (isSignedIn() && request.auth.uid == userId) || (resource.data.status == "PENDING" && request.resource.data.status == "PENDING");
+      allow delete: if isSuperAdmin();
+    }
+
+    // Employee Master
+    match /employees/{employeeId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isHRAdmin();
+    }
+
+    // Activity Logs (Append-only)
+    match /activityLogs/{logId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update, delete: if false; // strictly immutable append-only
+    }
+  }
+}

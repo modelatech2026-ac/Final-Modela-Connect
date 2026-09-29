@@ -1,0 +1,290 @@
+[
+  {
+    "id": "AUD-1790658960033-WAP1",
+    "timestamp": "2026-09-29T05:16:00.033Z",
+    "action": "Login Attempt",
+    "targetUser": "aditichakraborty2005@gmail.com",
+    "executedBy": "aditichakraborty2005@gmail.com",
+    "details": "Google login attempt. Current status: PENDING, Role: NULL"
+  },
+  {
+    "id": "AUD-1790658845869-6M96",
+    "timestamp": "2026-09-29T05:14:05.869Z",
+    "action": "Login Attempt",
+    "targetUser": "testuser2@gmail.com",
+    "executedBy": "testuser2@gmail.com",
+    "details": "Google login attempt. Current status: APPROVED, Role: EMPLOYEE"
+  },
+  {
+    "id": "AUD-1790658843202-5UNK",
+    "timestamp": "2026-09-29T05:14:03.202Z",
+    "action": "Login Attempt",
+    "targetUser": "testuser@gmail.com",
+    "executedBy": "testuser@gmail.com",
+    "details": "Google login attempt. Current status: REJECTED, Role: NULL"
+  },
+  {
+    "id": "AUD-1790658839807-TJZU",
+    "timestamp": "2026-09-29T05:13:59.807Z",
+    "action": "Request Rejected",
+    "targetUser": "testuser@gmail.com",
+    "executedBy": "sushoovandas@gmail.com",
+    "details": "Access request rejected by sushoovandas@gmail.com. Status set to REJECTED."
+  },
+  {
+    "id": "AUD-1790658836773-H0GE",
+    "timestamp": "2026-09-29T05:13:56.773Z",
+    "action": "Request Approved",
+    "targetUser": "testuser2@gmail.com",
+    "executedBy": "sushoovandas@gmail.com",
+    "details": "Access request approved by sushoovandas@gmail.com. Assigned Role: EMPLOYEE"
+  },
+  {
+    "id": "AUD-1790658830502-F41Z",
+    "timestamp": "2026-09-29T05:13:50.502Z",
+    "action": "Login Attempt",
+    "targetUser": "testuser2@gmail.com",
+    "executedBy": "testuser2@gmail.com",
+    "details": "Google login attempt. Current status: PENDING, Role: NULL"
+  },
+  {
+    "id": "AUD-1790658827104-RK1E",
+    "timestamp": "2026-09-29T05:13:47.104Z",
+    "action": "New Access Request Created",
+    "targetUser": "testuser2@gmail.com",
+    "executedBy": "testuser2@gmail.com",
+    "details": "Initial access request submitted by Test User 2 (testuser2@gmail.com). Status: PENDING, Role: NULL."
+  },
+  {
+    "id": "AUD-1790658818611-YM5D",
+    "timestamp": "2026-09-29T05:13:38.611Z",
+    "action": "New Access Request Created",
+    "targetUser": "testuser@gmail.com",
+    "executedBy": "testuser@gmail.com",
+    "details": "Initial access request submitted by Test User (testuser@gmail.com). Status: PENDING, Role: NULL."
+  },
+  {
+    "id": "AUD-1790658448240-3GSL",
+    "timestamp": "2026-09-29T05:07:28.240Z",
+    "action": "Admin Sign In",
+    "targetUser": "modelatech2026@gmail.com",
+    "executedBy": "modelatech2026@gmail.com",
+    "details": "Authorized HR Admin/Super Admin logged in: modelatech2026@gmail.com"
+  },
+  {
+    "id": "AUD-1790575561578-9AQC",
+    "timestamp": "2026-09-28T06:06:01.578Z",
+    "action": "Request Rejected",
+    "targetUser": "jane.reject@example.com",
+    "executedBy": "HR Admin",
+    "details": "Access request rejected by HR Admin. Status set to REJECTED."
+  },
+  {
+    "id": "AUD-1790575561563-3BFR",
+    "timestamp": "2026-09-28T06:06:01.563Z",
+    "action": "New Access Request Created",
+    "targetUser": "jane.reject@example.com",
+    "executedBy": "jane.reject@example.com",
+    "details": "Initial access request submitted by Jane Reject (jane.reject@example.com). Status: PENDING, Role: NULL."
+  },
+  {
+    "id": "AUD-1790575556119-P9SU",
+    "timestamp": "2026-09-28T06:05:56.119Z",
+    "action": "Request Approved",
+    "targetUser": "john.doe@example.com",
+    "executedBy": "HR Admin",
+    "details": "Access request approved by HR Admin. Assigned Role: EMPLOYEE"
+  },
+  {
+    "id": "AUD-1790575543348-LRHB",
+    "timestamp": "2026-09-28T06:05:43.348Z",
+    "action": "New Access Request Created",
+    "targetUser": "john.doe@example.com",
+    "executedBy": "john.doe@example.com",
+    "details": "Initial access request submitted by John Doe (john.doe@example.com). Status: PENDING, Role: NULL."
+  },
+  {
+    "id": "AUD-1790321753839-7SXP",
+    "timestamp": "2026-09-25T07:35:53.839Z",
+    "action": "Login Attempt",
+    "targetUser": "sushoovandas@gmail.com",
+    "executedBy": "sushoovandas@gmail.com",
+    "details": "Google login attempt. Current status: APPROVED, Role: SUPER_ADMIN"
+  },
+  {
+    "id": "AUD-1790320938434-U0I6",
+    "timestamp": "2026-09-25T07:22:18.434Z",
+    "action": "Role Assigned",
+    "targetUser": "modelatech2026@gmail.com",
+    "executedBy": "sushoovandas@gmail.com",
+    "details": "Role assigned: 'EMPLOYEE' (previous: NULL) by auditor USR-Q94BIIQ5"
+  },
+  {
+    "id": "AUD-1790320938434-DBUL",
+    "timestamp": "2026-09-25T07:22:18.434Z",
+    "action": "Request Approved",
+    "targetUser": "modelatech2026@gmail.com",
+    "executedBy": "sushoovandas@gmail.com",
+    "details": "Access request approved by Sushoovan Das (sushoovandas@gmail.com). Assigned Role: EMPLOYEE"
+  },
+  {
+    "id": "AUD-1790320842224-N9EA",
+    "timestamp": "2026-09-25T07:20:42.224Z",
+    "action": "Role Assigned",
+    "targetUser": "aditichakraborty2005@gmail.com",
+    "executedBy": "sushoovandas@gmail.com",
+    "details": "Role assigned: 'HR_MANAGER' (previous: NULL) by auditor USR-Q94BIIQ5"
+  },
+  {
+    "id": "AUD-1790320842224-Q8JC",
+    "timestamp": "2026-09-25T07:20:42.224Z",
+    "action": "Request Approved",
+    "targetUser": "aditichakraborty2005@gmail.com",
+    "executedBy": "sushoovandas@gmail.com",
+    "details": "Access request approved by Sushoovan Das (sushoovandas@gmail.com). Assigned Role: HR_MANAGER"
+  },
+  {
+    "id": "AUD-1790320491039-AAG6",
+    "timestamp": "2026-09-25T07:14:51.039Z",
+    "action": "Login Attempt",
+    "targetUser": "sushoovandas@gmail.com",
+    "executedBy": "sushoovandas@gmail.com",
+    "details": "Google login attempt. Current status: APPROVED, Role: SUPER_ADMIN"
+  },
+  {
+    "id": "AUD-1790320475165-KXI5",
+    "timestamp": "2026-09-25T07:14:35.165Z",
+    "action": "Logout",
+    "targetUser": "modelatech2026@gmail.com",
+    "executedBy": "modelatech2026@gmail.com",
+    "details": "User initiated sign out session termination."
+  },
+  {
+    "id": "AUD-1790320475047-OCJ5",
+    "timestamp": "2026-09-25T07:14:35.047Z",
+    "action": "Login Attempt",
+    "targetUser": "modelatech2026@gmail.com",
+    "executedBy": "modelatech2026@gmail.com",
+    "details": "Google login attempt. Current status: PENDING, Role: NULL"
+  },
+  {
+    "id": "AUD-1790320423199-YTJ6",
+    "timestamp": "2026-09-25T07:13:43.199Z",
+    "action": "Role Assigned",
+    "targetUser": "candidate.1790320423183@modela.io",
+    "executedBy": "sushoovandas@gmail.com",
+    "details": "Role assigned: 'HR_MANAGER' (previous: NULL) by auditor USR-Q94BIIQ5"
+  },
+  {
+    "id": "AUD-1790320423198-ZE9N",
+    "timestamp": "2026-09-25T07:13:43.199Z",
+    "action": "Request Approved",
+    "targetUser": "candidate.1790320423183@modela.io",
+    "executedBy": "sushoovandas@gmail.com",
+    "details": "Access request approved by Sushoovan Das (sushoovandas@gmail.com). Assigned Role: HR_MANAGER"
+  },
+  {
+    "id": "AUD-1790320423187-QGX3",
+    "timestamp": "2026-09-25T07:13:43.187Z",
+    "action": "New Access Request Created",
+    "targetUser": "candidate.1790320423183@modela.io",
+    "executedBy": "candidate.1790320423183@modela.io",
+    "details": "Initial access request submitted by Candidate User (candidate.1790320423183@modela.io). Status: PENDING, Role: NULL."
+  },
+  {
+    "id": "AUD-1790320423171-G9IJ",
+    "timestamp": "2026-09-25T07:13:43.171Z",
+    "action": "Login Attempt",
+    "targetUser": "sushoovandas@gmail.com",
+    "executedBy": "sushoovandas@gmail.com",
+    "details": "Google login attempt. Current status: APPROVED, Role: SUPER_ADMIN"
+  },
+  {
+    "id": "AUD-1790319932807-8F1H",
+    "timestamp": "2026-09-25T07:05:32.807Z",
+    "action": "Login Attempt",
+    "targetUser": "modelatech2026@gmail.com",
+    "executedBy": "modelatech2026@gmail.com",
+    "details": "Google login attempt. Current status: PENDING, Role: NULL"
+  },
+  {
+    "id": "AUD-1790319852178-H0ZT",
+    "timestamp": "2026-09-25T07:04:12.178Z",
+    "action": "New Access Request Created",
+    "targetUser": "testuser.1790319852155@example.com",
+    "executedBy": "testuser.1790319852155@example.com",
+    "details": "Initial access request submitted by Test User (testuser.1790319852155@example.com). Status: PENDING, Role: NULL."
+  },
+  {
+    "id": "AUD-1790319433480-KA85",
+    "timestamp": "2026-09-25T06:57:13.480Z",
+    "action": "New Access Request Created",
+    "targetUser": "modelatech2026@gmail.com",
+    "executedBy": "modelatech2026@gmail.com",
+    "details": "Initial access request submitted by Modelatech2026 (modelatech2026@gmail.com). Status: PENDING, Role: NULL."
+  },
+  {
+    "id": "AUD-1790319387045-OJ6P",
+    "timestamp": "2026-09-25T06:56:27.045Z",
+    "action": "New Access Request Created",
+    "targetUser": "modelatech2026@gmail.com",
+    "executedBy": "modelatech2026@gmail.com",
+    "details": "Initial access request submitted by Modela Tech (modelatech2026@gmail.com). Status: PENDING, Role: NULL."
+  },
+  {
+    "id": "AUD-1790319387037-GIT8",
+    "timestamp": "2026-09-25T06:56:27.037Z",
+    "action": "Login Attempt",
+    "targetUser": "sushoovandas@gmail.com",
+    "executedBy": "sushoovandas@gmail.com",
+    "details": "Google login attempt. Current status: APPROVED, Role: SUPER_ADMIN"
+  },
+  {
+    "id": "AUD-1790318844752-ONY5",
+    "timestamp": "2026-09-25T06:47:24.752Z",
+    "action": "Role Assigned",
+    "targetUser": "aditichakraborty2005@gmail.com",
+    "executedBy": "sushoovandas@gmail.com",
+    "details": "Role assigned: 'EMPLOYEE' (previous: NULL) by auditor USR-Q94BIIQ5"
+  },
+  {
+    "id": "AUD-1790318844752-NZFV",
+    "timestamp": "2026-09-25T06:47:24.752Z",
+    "action": "Request Approved",
+    "targetUser": "aditichakraborty2005@gmail.com",
+    "executedBy": "sushoovandas@gmail.com",
+    "details": "Access request approved by Sushoovan Das (sushoovandas@gmail.com). Assigned Role: EMPLOYEE"
+  },
+  {
+    "id": "AUD-1790318837906-M2KP",
+    "timestamp": "2026-09-25T06:47:17.906Z",
+    "action": "Login Attempt",
+    "targetUser": "aditichakraborty2005@gmail.com",
+    "executedBy": "aditichakraborty2005@gmail.com",
+    "details": "Google login attempt. Current status: PENDING, Role: NULL"
+  },
+  {
+    "id": "AUD-1790318837899-EAMQ",
+    "timestamp": "2026-09-25T06:47:17.899Z",
+    "action": "Login Attempt",
+    "targetUser": "sushoovandas@gmail.com",
+    "executedBy": "sushoovandas@gmail.com",
+    "details": "Google login attempt. Current status: APPROVED, Role: SUPER_ADMIN"
+  },
+  {
+    "id": "AUD-INIT-01",
+    "timestamp": "2026-09-20T08:44:35.660Z",
+    "action": "Request Approved",
+    "targetUser": "sushoovandas@gmail.com",
+    "executedBy": "System Root",
+    "details": "Root Super Admin identity authorized"
+  },
+  {
+    "id": "AUD-INIT-02",
+    "timestamp": "2026-09-20T08:44:35.661Z",
+    "action": "Role Assigned",
+    "targetUser": "sushoovandas@gmail.com",
+    "executedBy": "System Root",
+    "details": "Role assigned as Super Admin"
+  }
+]

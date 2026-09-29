@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" fill="none" class="modela-logo">
+  <!-- Shape 1: Left Chevron (Left Leg & Central Valley) -->
+  <polygon
+    points="18,38 108,110 44,182 18,160"
+    fill="#114B7B"
+  />
+  <!-- Shape 2: Diagonal Upper-Right Bar (Right Diagonal & Top-Right Apex) -->
+  <polygon
+    points="96,92 180,10 180,54 115,116"
+    fill="#114B7B"
+  />
+  <!-- Shape 3: Lower-Right Vertical Pillar (Right Leg with Bevelled Top) -->
+  <polygon
+    points="138,102 180,64 180,182 138,182"
+    fill="#114B7B"
+  />
+</svg>

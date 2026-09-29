@@ -1,0 +1,37 @@
+# Netlify Configuration for Modela Connect HR App
+# Ensures client-side routing and API endpoints resolve properly
+
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "22"
+
+# 1. API Route Redirects
+# Proxies /api/* requests to Netlify serverless functions if provisioned
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/:splat"
+  status = 200
+
+# 2. Single Page Application (SPA) Client Routing
+# Redirects all frontend client routes (/*) to /index.html with HTTP 200
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+# Custom security headers
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "SAMEORIGIN"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+
+# Cache control for immutable built assets
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
