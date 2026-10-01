@@ -71,21 +71,34 @@
     },
     "AccessRequest": {
       "title": "AccessRequest",
-      "description": "Onboarding request from a user signing in via Google pending Super Admin clearance",
+      "description": "Onboarding request from a user signing in via Google pending HR/Super Admin clearance",
       "type": "object",
       "properties": {
+        "userId": { "type": "string" },
+        "userEmail": { "type": "string", "format": "email" },
+        "applicantName": { "type": "string" },
+        "requestType": { "type": "string" },
+        "status": {
+          "type": "string",
+          "enum": ["pending", "approved", "rejected", "PENDING", "APPROVED", "REJECTED"]
+        },
+        "timestamp": { "type": "string" },
+        "processedBy": { "type": "string" },
+        "processedAt": { "type": "string" },
+        "rejectionReason": { "type": "string" },
+        "requestedRole": { "type": "string" },
+        "assignedRole": { "type": "string" },
         "uid": { "type": "string" },
         "name": { "type": "string" },
         "email": { "type": "string", "format": "email" },
         "photoURL": { "type": "string" },
-        "status": {
-          "type": "string",
-          "enum": ["PENDING", "APPROVED", "REJECTED"]
-        },
         "role": { "type": "string" },
-        "createdAt": { "type": "string" }
+        "createdAt": { "type": "string" },
+        "remarks": { "type": "string" },
+        "reviewedBy": { "type": "string" },
+        "reviewTime": { "type": "string" }
       },
-      "required": ["uid", "name", "email", "status"]
+      "required": ["status"]
     }
   },
   "firestore": {

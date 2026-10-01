@@ -24,15 +24,20 @@ import { useNavigate } from "react-router-dom";
 import {
   getSafeFirebase,
   updateUserStatusInFirestore,
+  handleRequestAction,
+  subscribeToAllRequests,
 } from "../../services/firebaseAuthService";
 import { collection, onSnapshot } from "firebase/firestore";
 
 export interface ManagedUser {
   id?: string;
   uid: string;
+  userId?: string;
   name: string;
+  applicantName?: string;
   email: string;
-  status: "PENDING" | "APPROVED" | "REJECTED" | "Pending" | "Approved" | "Rejected";
+  userEmail?: string;
+  status: "PENDING" | "APPROVED" | "REJECTED" | "Pending" | "Approved" | "Rejected" | "pending" | "approved" | "rejected";
   role:
     | "SUPER_ADMIN"
     | "HR_ADMIN"
@@ -46,10 +51,18 @@ export interface ManagedUser {
     | string;
   requestDate?: string;
   requestedAt?: string;
+  requestTime?: string;
   statusUpdatedAt?: string;
   reviewedAt?: string;
+  reviewTime?: string;
+  processedAt?: string;
   actionByUserId?: string | null;
   reviewedBy?: string;
+  processedBy?: string;
+  rejectionReason?: string | null;
+  remarks?: string | null;
+  assignedRole?: string | null;
+  requestedRole?: string | null;
   notificationUnread?: boolean;
 }
 
@@ -58,20 +71,21 @@ export const AdminApprovalDashboard: React.FC = () => {
   const { success, error: toastError, info } = useToast();
   const navigate = useNavigate();
 
-  // Top-level View Tab: "Access Requests" vs "Employees" (Section 4.A vs 4.C)
-  const [activeView, setActiveView] = useState<"ACCESS_REQUESTS" | "EMPLOYEES">("ACCESS_REQUESTS");
+  // Top-level View Tab: "Access Requests" vs "Audit History" vs "Employees"
+  const [activeView, setActiveView] = useState<"ACCESS_REQUESTS" | "AUDIT_HISTORY" | "EMPLOYEES">("ACCESS_REQUESTS");
 
   const [users, setUsers] = useState<ManagedUser[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"ALL" | "PENDING" | "APPROVED" | "REJECTED">("ALL");
 
-  // Accept Modal state
+  // Accept/Review Modal state
   const [isAcceptModalOpen, setIsAcceptModalOpen] = useState(false);
   const [selectedUserForApproval, setSelectedUserForApproval] = useState<ManagedUser | null>(null);
   const [selectedRole, setSelectedRole] = useState<
     "SUPER_ADMIN" | "HR_ADMIN" | "HR_MANAGER" | "EMPLOYEE" | "HR Admin" | "HR Manager" | "Employee" | "Super Admin"
   >("EMPLOYEE");
+  const [remarks, setRemarks] = useState<string>("");
   const [isSubmittingApproval, setIsSubmittingApproval] = useState(false);
   const [isProcessingUid, setIsProcessingUid] = useState<string | null>(null);
 
@@ -131,61 +145,30 @@ export const AdminApprovalDashboard: React.FC = () => {
     }
   };
 
-  // Realtime / Auto-Sync Admin Approval List:
-  // Subscribes to live database updates and runs high-frequency background polling so new requests
-  // appear live on the dashboard without needing a hard page refresh.
+  // Realtime Firestore subscription:
+  // Subscribes to live Firestore access_requests collection so new requests, approvals,
+  // and rejections sync live on the dashboard across all devices without page refresh.
   useEffect(() => {
     if (!hasAccess) return;
 
-    fetchUsers(false);
-
-    // 1. Polling hook: auto-sync every 2500ms
-    const pollingInterval = setInterval(() => {
-      fetchUsers(true);
-    }, 2500);
-
-    // 2. Window focus & storage update hooks
-    const handleSync = () => fetchUsers(true);
-    const handleStorage = (e: StorageEvent) => {
-      if (e.key === "modela_users_v2" || e.key === "modela_active_user_data") {
-        fetchUsers(true);
+    setIsLoading(true);
+    const unsubscribeFirestore = subscribeToAllRequests(
+      (loadedRequests) => {
+        setUsers(loadedRequests as any);
+        setIsLoading(false);
+      },
+      (err) => {
+        console.warn("Firestore subscription error:", err);
+        setIsLoading(false);
       }
-    };
-
-    window.addEventListener("focus", handleSync);
-    window.addEventListener("storage", handleStorage);
-    window.addEventListener("modela_users_updated", handleSync);
-
-    // 3. Realtime Firestore listener if Firebase credentials exist
-    let unsubscribeFirestore: (() => void) | undefined;
-    try {
-      const { db } = getSafeFirebase();
-      if (db) {
-        const usersCol = collection(db, "users");
-        unsubscribeFirestore = onSnapshot(
-          usersCol,
-          () => {
-            fetchUsers(true);
-          },
-          (err) => {
-            console.warn("Firestore subscription warning:", err);
-          }
-        );
-      }
-    } catch (err) {
-      console.warn("Failed to attach Firestore realtime listener:", err);
-    }
+    );
 
     return () => {
-      clearInterval(pollingInterval);
-      window.removeEventListener("focus", handleSync);
-      window.removeEventListener("storage", handleStorage);
-      window.removeEventListener("modela_users_updated", handleSync);
-      if (unsubscribeFirestore) {
+      if (typeof unsubscribeFirestore === "function") {
         unsubscribeFirestore();
       }
     };
-  }, [hasAccess, currentUser?.email]);
+  }, [hasAccess]);
 
   if (!hasAccess) {
     return (
@@ -209,9 +192,10 @@ export const AdminApprovalDashboard: React.FC = () => {
     );
   }
 
-  // Open Accept/View Modal for a request
+  // Open Accept/Review Modal for a request
   const handleOpenAcceptModal = (user: ManagedUser) => {
     setSelectedUserForApproval(user);
+    setRemarks(user.remarks || user.rejectionReason || "");
     const existing = user.role;
     if (existing) {
       const upper = String(existing).toUpperCase();
@@ -226,11 +210,7 @@ export const AdminApprovalDashboard: React.FC = () => {
   };
 
   // Section 4.B: "Approve & Assign Role" Action
-  // Runs database UPDATE query:
-  // - Sets status = 'APPROVED'
-  // - Assigns default employee role (or selected administrative role)
-  // - Sets notificationUnread = true
-  // - Records auditor ID and timestamp
+  // Atomically updates status to 'approved', sets processedBy, processedAt, and assignedRole
   const handleApproveAndAssignRole = async () => {
     if (!selectedUserForApproval || !currentUser?.email) return;
 
@@ -251,38 +231,24 @@ export const AdminApprovalDashboard: React.FC = () => {
     const targetUid = selectedUserForApproval.id || selectedUserForApproval.uid;
 
     try {
-      // 1. Database UPDATE query
-      const res = await fetch(
-        `/api/users/${encodeURIComponent(targetUid)}/approve`,
-        {
-          method: "POST",
-          headers: getAuthHeaders(),
-          body: JSON.stringify({
-            status: "APPROVED",
-            role: roleToAssign,
-          }),
-        }
+      const res = await handleRequestAction(
+        targetUid,
+        "approved",
+        currentUser.email,
+        remarks,
+        roleToAssign
       );
 
-      // 2. Also update Firestore if Firebase is provisioned
-      await updateUserStatusInFirestore(
-        targetUid,
-        "Approved",
-        roleToAssign,
-        currentUser.email
-      ).catch(() => {});
-
-      if (res.ok) {
+      if (res.success) {
         success(
           "Role Assigned & Approved",
           `${selectedUserForApproval.name} (${selectedUserForApproval.email}) has been approved with role '${roleToAssign}'.`
         );
         setIsAcceptModalOpen(false);
         setSelectedUserForApproval(null);
-        await fetchUsers(true);
+        setRemarks("");
       } else {
-        const err = await res.json();
-        toastError("Approval Failed", err.message || "Failed to approve user.");
+        toastError("Approval Failed", res.error || "Failed to approve user.");
       }
     } catch (err: any) {
       toastError("Approval Error", err.message || "Failed to approve user.");
@@ -292,32 +258,20 @@ export const AdminApprovalDashboard: React.FC = () => {
   };
 
   // Section 4.B: "Reject Request" Action
-  // Runs database UPDATE query:
-  // - Sets status = 'REJECTED'
-  // - Sets notificationUnread = true
-  const handleRejectRequest = async (uid: string, userEmail: string, userName: string) => {
+  // Atomically updates status to 'rejected', sets processedBy, processedAt, and remarks
+  const handleRejectRequest = async (uid: string, userEmail: string, userName: string, reasonInput?: string) => {
     if (!currentUser?.email) return;
     setIsProcessingUid(uid);
 
     try {
-      // 1. Database UPDATE query
-      const res = await fetch(`/api/users/${encodeURIComponent(uid)}/reject`, {
-        method: "POST",
-        headers: getAuthHeaders(),
-        body: JSON.stringify({
-          status: "REJECTED",
-        }),
-      });
-
-      // 2. Also update Firestore if Firebase is provisioned
-      await updateUserStatusInFirestore(
+      const res = await handleRequestAction(
         uid,
-        "Rejected",
-        null,
-        currentUser.email
-      ).catch(() => {});
+        "rejected",
+        currentUser.email,
+        reasonInput || remarks || "Access request rejected by HR/Super Admin"
+      );
 
-      if (res.ok) {
+      if (res.success) {
         info(
           "Request Rejected",
           `Access request for ${userName} (${userEmail}) has been set to 'REJECTED'.`
@@ -325,11 +279,10 @@ export const AdminApprovalDashboard: React.FC = () => {
         if (isAcceptModalOpen) {
           setIsAcceptModalOpen(false);
           setSelectedUserForApproval(null);
+          setRemarks("");
         }
-        await fetchUsers(true);
       } else {
-        const err = await res.json();
-        toastError("Rejection Failed", err.message || "Failed to reject user.");
+        toastError("Rejection Failed", res.error || "Failed to reject user.");
       }
     } catch (err: any) {
       toastError("Rejection Error", err.message || "Failed to reject user.");
@@ -366,6 +319,25 @@ export const AdminApprovalDashboard: React.FC = () => {
     (u) => normalizeStatus(u.status) === "APPROVED" && isEmployeeRole(u.role)
   ).length;
 
+  const resolvedRequests = users.filter((u) => {
+    const norm = normalizeStatus(u.status);
+    const isResolved = norm === "APPROVED" || norm === "REJECTED";
+    const matchesSearch =
+      u.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      u.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (u.role && u.role.toLowerCase().includes(searchQuery.toLowerCase())) ||
+      (u.reviewedBy && u.reviewedBy.toLowerCase().includes(searchQuery.toLowerCase())) ||
+      (u.processedBy && u.processedBy.toLowerCase().includes(searchQuery.toLowerCase())) ||
+      (u.remarks && u.remarks.toLowerCase().includes(searchQuery.toLowerCase())) ||
+      (u.rejectionReason && u.rejectionReason.toLowerCase().includes(searchQuery.toLowerCase()));
+    return isResolved && matchesSearch;
+  });
+
+  const resolvedCount = users.filter((u) => {
+    const norm = normalizeStatus(u.status);
+    return norm === "APPROVED" || norm === "REJECTED";
+  }).length;
+
   return (
     <div className="space-y-6 max-w-7xl mx-auto antialiased">
       {/* Header Banner */}
@@ -398,7 +370,7 @@ export const AdminApprovalDashboard: React.FC = () => {
         </div>
       </div>
 
-      {/* Primary Section Switcher: Access Requests vs Dedicated Employees View */}
+      {/* Primary Section Switcher: Access Requests vs Dedicated Employees View vs Audit History */}
       <div className="flex items-center gap-2 p-1.5 bg-slate-800/90 rounded-2xl border border-slate-700 w-fit">
         <button
           onClick={() => setActiveView("ACCESS_REQUESTS")}
@@ -415,6 +387,21 @@ export const AdminApprovalDashboard: React.FC = () => {
               {pendingCount}
             </span>
           )}
+        </button>
+
+        <button
+          onClick={() => setActiveView("AUDIT_HISTORY")}
+          className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2 ${
+            activeView === "AUDIT_HISTORY"
+              ? "bg-blue-600 text-white shadow-md"
+              : "text-slate-400 hover:text-white"
+          }`}
+        >
+          <Clock className="w-3.5 h-3.5" />
+          <span>Audit History</span>
+          <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-slate-700 text-slate-300 font-medium">
+            {resolvedCount}
+          </span>
         </button>
 
         <button
@@ -442,6 +429,8 @@ export const AdminApprovalDashboard: React.FC = () => {
             placeholder={
               activeView === "ACCESS_REQUESTS"
                 ? "Search by User Name or Email..."
+                : activeView === "AUDIT_HISTORY"
+                ? "Search Audit History by Name, Auditor, Remarks..."
                 : "Search Approved Employees..."
             }
             value={searchQuery}
@@ -622,6 +611,108 @@ export const AdminApprovalDashboard: React.FC = () => {
             </table>
           </div>
         </div>
+      ) : activeView === "AUDIT_HISTORY" ? (
+        /* ========================================================================= */
+        /* AUDIT HISTORY VIEW: Resolved items (Approved & Rejected requests)         */
+        /* Displays auditor info, timestamps, assigned role, and remarks/reason      */
+        /* ========================================================================= */
+        <div className="bg-slate-800 border border-slate-700 rounded-2xl shadow-sm overflow-hidden">
+          <div className="p-4 bg-slate-900/60 border-b border-slate-700 flex items-center justify-between">
+            <div>
+              <h3 className="font-bold text-white text-sm">
+                Resolved Requests Audit History
+              </h3>
+              <p className="text-slate-400 text-xs">
+                History of all approved and rejected requests with auditor details and rationale.
+              </p>
+            </div>
+            <span className="px-3 py-1 rounded-full text-xs font-bold bg-slate-700 text-slate-300 border border-slate-600">
+              {resolvedRequests.length} Resolved
+            </span>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-slate-900/90 border-b border-slate-700 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                  <th className="py-3.5 px-4">Applicant</th>
+                  <th className="py-3.5 px-4">Email</th>
+                  <th className="py-3.5 px-4">Decision</th>
+                  <th className="py-3.5 px-4">Role Assigned</th>
+                  <th className="py-3.5 px-4">Processed By</th>
+                  <th className="py-3.5 px-4">Processed Time</th>
+                  <th className="py-3.5 px-4">Remarks / Reason</th>
+                  <th className="py-3.5 px-4 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-700/60 text-xs">
+                {resolvedRequests.length === 0 ? (
+                  <tr>
+                    <td colSpan={8} className="py-12 text-center text-slate-400 text-xs">
+                      No resolved requests found in audit history.
+                    </td>
+                  </tr>
+                ) : (
+                  resolvedRequests.map((req) => {
+                    const norm = normalizeStatus(req.status);
+                    const uid = req.id || req.uid;
+                    const dateStr = req.processedAt || req.reviewedAt || req.reviewTime || req.statusUpdatedAt;
+
+                    return (
+                      <tr key={uid} className="hover:bg-slate-700/30 transition-colors">
+                        <td className="py-3.5 px-4 font-semibold text-white">
+                          {req.name}
+                        </td>
+                        <td className="py-3.5 px-4 font-mono text-slate-300">
+                          {req.email}
+                        </td>
+                        <td className="py-3.5 px-4">
+                          {norm === "APPROVED" ? (
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                              <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                              Approved
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-red-500/15 text-red-300 border border-red-500/30">
+                              <XCircle className="w-3 h-3 text-red-400" />
+                              Rejected
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-3.5 px-4 text-slate-300 font-medium">
+                          {req.assignedRole || req.role || "—"}
+                        </td>
+                        <td className="py-3.5 px-4 text-slate-300 font-mono text-[11px]">
+                          {req.processedBy || req.reviewedBy || "HR Admin"}
+                        </td>
+                        <td className="py-3.5 px-4 text-slate-300 font-mono text-[11px] whitespace-nowrap">
+                          {dateStr
+                            ? new Date(dateStr).toLocaleString([], {
+                                dateStyle: "medium",
+                                timeStyle: "short",
+                              })
+                            : "N/A"}
+                        </td>
+                        <td className="py-3.5 px-4 text-slate-400 max-w-xs truncate" title={req.remarks || req.rejectionReason || "No remarks"}>
+                          {req.remarks || req.rejectionReason || "—"}
+                        </td>
+                        <td className="py-3.5 px-4 text-right">
+                          <button
+                            onClick={() => handleOpenAcceptModal(req)}
+                            className="px-2.5 py-1 bg-slate-700 hover:bg-slate-600 text-slate-300 hover:text-white rounded-lg text-xs font-medium transition-colors cursor-pointer inline-flex items-center gap-1"
+                          >
+                            <Edit className="w-3 h-3" />
+                            <span>Edit</span>
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
       ) : (
         /* ========================================================================= */
         /* SECTION 4.C: CATEGORIZED EMPLOYEES MANAGEMENT SECTION                     */
@@ -712,6 +803,7 @@ export const AdminApprovalDashboard: React.FC = () => {
       {/* SECTION 4.B: ROLE ASSIGNMENT & APPROVAL WORKFLOW MODAL DIALOG              */}
       {/* Displays: Name, Email, Request Date                                       */}
       {/* Role Selection Dropdown: [ HR Admin, HR Manager, Employee, Super Admin ]  */}
+      {/* Remarks / Reason input textarea                                           */}
       {/* Actions: "Approve & Assign Role" and "Reject Request"                      */}
       {/* ========================================================================= */}
       {isAcceptModalOpen && selectedUserForApproval && (
@@ -728,6 +820,7 @@ export const AdminApprovalDashboard: React.FC = () => {
                 onClick={() => {
                   setIsAcceptModalOpen(false);
                   setSelectedUserForApproval(null);
+                  setRemarks("");
                 }}
                 className="text-slate-400 hover:text-white p-1 rounded-md"
               >
@@ -763,6 +856,12 @@ export const AdminApprovalDashboard: React.FC = () => {
                     : "N/A"}
                 </span>
               </div>
+              <div className="flex justify-between items-center">
+                <span className="text-slate-400 font-medium">Current Status:</span>
+                <span className="text-slate-300 font-semibold uppercase">
+                  {selectedUserForApproval.status}
+                </span>
+              </div>
             </div>
 
             {/* Role Selection Dropdown: [ SUPER_ADMIN, HR_ADMIN, HR_MANAGER, EMPLOYEE ] */}
@@ -790,6 +889,24 @@ export const AdminApprovalDashboard: React.FC = () => {
               </select>
             </div>
 
+            {/* Remarks / Reason Input */}
+            <div className="space-y-1.5">
+              <label
+                htmlFor="modal-remarks-input"
+                className="block text-xs font-semibold text-slate-300"
+              >
+                Remarks / Reason (Optional):
+              </label>
+              <textarea
+                id="modal-remarks-input"
+                rows={2}
+                placeholder="Add approval remarks or rejection rationale..."
+                value={remarks}
+                onChange={(e) => setRemarks(e.target.value)}
+                className="w-full px-3.5 py-2 bg-slate-900 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 font-medium resize-none"
+              />
+            </div>
+
             {/* Modal Actions */}
             <div className="flex items-center justify-between gap-3 pt-3 border-t border-slate-700">
               {/* Reject Request Action */}
@@ -799,7 +916,8 @@ export const AdminApprovalDashboard: React.FC = () => {
                   handleRejectRequest(
                     selectedUserForApproval.id || selectedUserForApproval.uid,
                     selectedUserForApproval.email,
-                    selectedUserForApproval.name
+                    selectedUserForApproval.name,
+                    remarks
                   )
                 }
                 disabled={isSubmittingApproval}
@@ -815,6 +933,7 @@ export const AdminApprovalDashboard: React.FC = () => {
                   onClick={() => {
                     setIsAcceptModalOpen(false);
                     setSelectedUserForApproval(null);
+                    setRemarks("");
                   }}
                   disabled={isSubmittingApproval}
                   className="px-3.5 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-xl text-xs font-semibold transition-colors cursor-pointer"

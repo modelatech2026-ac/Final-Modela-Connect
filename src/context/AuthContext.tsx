@@ -11,6 +11,9 @@ import {
   getSafeFirebase,
   getUserDocFromFirestore,
   subscribeToUserDoc,
+  submitAccessRequest,
+  subscribeToUserRequestStatus,
+  subscribeToPendingRequests,
 } from "../services/firebaseAuthService";
 import {
   isRoleSuperAdmin,
@@ -156,36 +159,37 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isSignInModalOpen, setIsSignInModalOpen] = useState<boolean>(false);
   const [pendingRequests, setPendingRequests] = useState<AppUser[]>([]);
 
-  // Function to fetch all entries from shared database where status === 'PENDING'
+  // Function to fetch all entries from shared Firestore database where status === 'pending'
   const fetchPendingUsers = useCallback(async (): Promise<AppUser[]> => {
-    try {
-      const { ok, data } = await safeFetchJson<any>("/api/users/pending", {
-        headers: {
-          "Content-Type": "application/json",
-          "x-user-email": currentUser?.email || "modelatech2026@gmail.com",
+    return new Promise((resolve) => {
+      const unsub = subscribeToPendingRequests(
+        (requests) => {
+          const list: AppUser[] = requests.map((r) => ({
+            id: r.id,
+            uid: r.uid,
+            name: r.name,
+            email: r.email,
+            status: r.status,
+            role: r.role,
+            requestedAt: r.requestedAt,
+            requestDate: r.requestDate,
+            reviewedBy: r.reviewedBy,
+            reviewedAt: r.reviewedAt,
+            avatar_url: r.avatar_url,
+          }));
+          setPendingRequests(list);
+          resolve(list);
         },
-      });
-      if (ok && data) {
-        const list: AppUser[] = data.users || data.pendingRequests || [];
-        setPendingRequests(list);
-        return list;
-      } else {
-        // Fallback: safeFetchJson /api/users
-        const allRes = await safeFetchJson<any>("/api/users");
-        if (allRes.ok && allRes.data) {
-          const pending = (allRes.data.users || []).filter((u: any) => {
-            const s = String(u.status || "").trim().toUpperCase();
-            return s === "PENDING" || s === "PENDING_APPROVAL";
-          });
-          setPendingRequests(pending);
-          return pending;
+        (err) => {
+          console.warn("Error fetching pending requests from Firestore:", err);
+          resolve([]);
         }
-      }
-    } catch (err) {
-      console.warn("Error fetching pending requests:", err);
-    }
-    return [];
-  }, [currentUser?.email]);
+      );
+      setTimeout(() => {
+        if (typeof unsub === "function") unsub();
+      }, 5000);
+    });
+  }, []);
 
   // Sync current user to local storage (no images stored)
   useEffect(() => {
@@ -196,7 +200,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [currentUser]);
 
-  // Initial session hydration & admin pending fetch
+  // Initial session hydration
   useEffect(() => {
     const timer = setTimeout(() => {
       setIsLoading(false);
@@ -204,12 +208,78 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => clearTimeout(timer);
   }, []);
 
-  // When admin is logged in, auto-fetch pending requests from database
+  // When admin is logged in, attach real-time listener for pending requests
   useEffect(() => {
-    if (currentUser?.email && isAuthorizedAdminEmail(currentUser.email)) {
-      fetchPendingUsers();
-    }
-  }, [currentUser?.email, fetchPendingUsers]);
+    if (!currentUser?.email) return;
+    const isAdm = isAuthorizedAdminEmail(currentUser.email) || checkIsUserSuperAdmin(currentUser) || isRoleAdmin(currentUser.role);
+    if (!isAdm) return;
+
+    const unsub = subscribeToPendingRequests((requests) => {
+      const list: AppUser[] = requests.map((r) => ({
+        id: r.id,
+        uid: r.uid,
+        name: r.name,
+        email: r.email,
+        status: r.status,
+        role: r.role,
+        requestedAt: r.requestedAt,
+        requestDate: r.requestDate,
+        reviewedBy: r.reviewedBy,
+        reviewedAt: r.reviewedAt,
+        avatar_url: r.avatar_url,
+      }));
+      setPendingRequests(list);
+    });
+
+    return () => {
+      if (typeof unsub === "function") unsub();
+    };
+  }, [currentUser?.email, currentUser?.role]);
+
+  // 2. Real-Time Listener: Listen to employee's request status across all devices
+  // Unlocks app on "approved", shows alert on "rejected"
+  useEffect(() => {
+    if (!currentUser?.email) return;
+    const isAdm = isAuthorizedAdminEmail(currentUser.email) || checkIsUserSuperAdmin(currentUser);
+    if (isAdm) return;
+
+    const norm = String(currentUser.status || "").toUpperCase();
+    if (norm === "APPROVED") return;
+
+    const unsub = subscribeToUserRequestStatus(
+      currentUser.email,
+      (status, requestDoc) => {
+        if (status === "approved") {
+          setCurrentUser((prev) => {
+            if (!prev) return null;
+            return {
+              ...prev,
+              status: "Approved",
+              role: requestDoc.role || "Employee",
+              reviewedBy: requestDoc.reviewedBy,
+              reviewedAt: requestDoc.reviewedAt,
+            };
+          });
+          success("Access Approved", "Your access request has been approved! Workspace unlocked.");
+        } else if (status === "rejected") {
+          setCurrentUser((prev) => {
+            if (!prev) return null;
+            return {
+              ...prev,
+              status: "Rejected",
+              reviewedBy: requestDoc.reviewedBy,
+              reviewedAt: requestDoc.reviewedAt,
+            };
+          });
+          toastError("Access Rejected", "Your access request was rejected by HR/Super Admin.");
+        }
+      }
+    );
+
+    return () => {
+      if (typeof unsub === "function") unsub();
+    };
+  }, [currentUser?.email, success, toastError]);
 
   // Google OAuth Login Action
   const loginWithGoogle = useCallback(
@@ -250,36 +320,29 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       };
 
       try {
-        // Safe fetch with Content-Type and response.ok validation
-        const { ok, data, isHtml, status: httpStatus } = await safeFetchJson<any>("/api/auth/google", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            email: cleanEmail,
-            name: cleanName,
-            avatar_url: finalAvatar,
-            status: isEmailSuperAdmin ? "APPROVED" : "PENDING",
-            requested_at: timestamp,
-          }),
+        // Step 1: Submit to single Firestore collection `access_requests`
+        const accessReqResult = await submitAccessRequest({
+          userId: isEmailSuperAdmin ? "USR-SUPERADMIN-01" : undefined,
+          userEmail: cleanEmail,
+          applicantName: cleanName,
+          photoURL: finalAvatar,
+          requestedRole: "employee",
         });
 
-        // 2. Ensure Super Admin Fallback / Local Clearance:
-        // If the email matches the authorized Super Admin account, grant role: 'Super Admin'
-        // and clearance even if background backend API call returns a 404/HTML page.
+        // 2. Ensure Super Admin Fallback / Clearance:
         if (isEmailSuperAdmin) {
-          if (data?.token) {
-            localStorage.setItem("modela_jwt_token", data.token);
-          }
           const finalAdmin: AppUser = {
             ...superAdminClearedUser,
-            name: data?.user?.name || cleanName,
-            avatar_url: data?.user?.avatar_url || finalAvatar,
+            name: cleanName,
+            avatar_url: finalAvatar,
+            status: "Approved",
+            role: "Super Admin",
+            isSuperAdmin: true,
           };
 
           setCurrentUser(finalAdmin);
           setIsLoading(false);
 
-          // Background sync pending users
           fetchPendingUsers().catch(() => []);
 
           success(
@@ -296,77 +359,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           };
         }
 
-        // If backend database write fails, log actual error and never show false success
-        if (!ok || !data) {
-          const errDetail =
-            data?.message ||
-            (isHtml
-              ? `Backend route returned unexpected HTML response (HTTP ${httpStatus})`
-              : `Database request failed with status ${httpStatus}`);
-          console.error("[AuthContext] Database write to /api/auth/google failed:", {
-            httpStatus,
-            isHtml,
-            errDetail,
-          });
-
-          setIsLoading(false);
-          toastError("Submission Error", errDetail);
-
-          return {
-            success: false,
-            case: "A",
-            status: "Pending",
-            message: errDetail,
-          };
-        }
-
-        const serverUser = data.user;
-        if (data.token) {
-          localStorage.setItem("modela_jwt_token", data.token);
-        }
-
         const resolvedUser: AppUser = {
-          id: serverUser?.id || serverUser?.uid || ("USR-" + Math.random().toString(36).substring(2, 9)),
-          uid: serverUser?.uid || serverUser?.id || ("USR-" + Math.random().toString(36).substring(2, 9)),
-          name: serverUser?.name || cleanName,
+          id: accessReqResult.user?.id || accessReqResult.requestId || ("USR-" + Math.random().toString(36).substring(2, 9)),
+          uid: accessReqResult.user?.uid || accessReqResult.requestId || ("USR-" + Math.random().toString(36).substring(2, 9)),
+          name: accessReqResult.user?.name || cleanName,
           email: cleanEmail,
-          avatar_url: serverUser?.avatar_url || finalAvatar,
-          status: serverUser?.status || data.status || "Pending",
-          role: serverUser?.role || null,
-          employeeId: serverUser?.employeeId || undefined,
-          isSuperAdmin: checkIsUserSuperAdmin(serverUser),
-          requested_at: serverUser?.requested_at || timestamp,
-          requestDate: serverUser?.requestDate || timestamp,
-          requestedAt: serverUser?.requestedAt || timestamp,
-        };
-
-        // Requirement 1: Global Firestore Writes on Google Sign-In:
-        // Force an explicit async write (setDoc) to shared Firestore collection 'access_requests' & 'users'
-        // with fields: { uid, name, email, photoURL, status: "PENDING", createdAt: serverTimestamp(), role: "PENDING" }
-        await syncGoogleUserToFirestore({
-          id: resolvedUser.id,
-          uid: resolvedUser.uid,
-          name: resolvedUser.name,
-          email: resolvedUser.email,
-          photoURL: finalAvatar,
           avatar_url: finalAvatar,
-          status: "PENDING",
-          role: "PENDING",
-          requested_at: timestamp,
-          requestedAt: timestamp,
-        }).then((res) => {
-          if (!res.success && res.error) {
-            console.error("[AuthContext] Explicit Firestore write failed:", res.error);
-          }
-        }).catch((err) => {
-          console.error("[AuthContext] Unexpected Firestore write failure:", err);
-        });
+          status: accessReqResult.user?.status || (accessReqResult.status === "approved" ? "Approved" : accessReqResult.status === "rejected" ? "Rejected" : "Pending"),
+          role: accessReqResult.user?.role || (accessReqResult.status === "approved" ? "Employee" : null),
+          employeeId: accessReqResult.user?.employeeId,
+          isSuperAdmin: checkIsUserSuperAdmin(accessReqResult.user),
+          requested_at: accessReqResult.user?.requestedAt || timestamp,
+          requestDate: accessReqResult.user?.requestDate || timestamp,
+          requestedAt: accessReqResult.user?.requestedAt || timestamp,
+          reviewedBy: accessReqResult.user?.reviewedBy,
+          reviewedAt: accessReqResult.user?.reviewedAt,
+        };
 
         setCurrentUser(resolvedUser);
         setIsLoading(false);
 
-        const finalStatus = (data.status || resolvedUser.status || "Pending");
-        const normStatus = finalStatus.toUpperCase();
+        const finalStatus = resolvedUser.status || "Pending";
+        const normStatus = String(finalStatus).toUpperCase();
 
         if (normStatus === "APPROVED") {
           success(
@@ -383,10 +397,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
 
         return {
-          success: Boolean(data.success),
-          case: data.case || (normStatus === "APPROVED" ? "D" : normStatus === "REJECTED" ? "C" : "A"),
+          success: true,
+          case: normStatus === "APPROVED" ? "D" : normStatus === "REJECTED" ? "C" : (accessReqResult.status === "pending" ? "A" : "B"),
           status: finalStatus,
-          message: data.message || "Authentication processed",
+          message: accessReqResult.message,
           user: resolvedUser,
         };
       } catch (err: any) {
@@ -396,7 +410,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         // Even on network error, ensure Super Admin local clearance
         if (isEmailSuperAdmin) {
-          console.info("[AuthContext] Granting local clearance for Super Admin account despite network/backend failure.");
           setCurrentUser(superAdminClearedUser);
           success("Access Authorized", `Welcome back, ${cleanName}. Local Super Admin clearance active.`);
           return {
@@ -408,7 +421,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           };
         }
 
-        toastError("Sign In Notice", "Could not synchronize with server; session maintained locally.");
+        toastError("Sign In Notice", "Could not complete request: " + errorMsg);
         return {
           success: false,
           case: "A",

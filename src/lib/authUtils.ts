@@ -93,12 +93,12 @@ export function checkIsUserSuperAdmin(
 export function isRoleAdmin(role?: string | null): boolean {
   if (!role) return false;
   if (isRoleSuperAdmin(role)) return true;
-  const normalized = role.trim().toUpperCase();
+  const normalized = role.trim().toUpperCase().replace(/[\s_-]+/g, "_");
   return (
     normalized === "ADMIN" ||
-    normalized === "HR ADMIN" ||
     normalized === "HR_ADMIN" ||
-    normalized === "HR"
+    normalized === "HR" ||
+    normalized === "HR_MANAGER"
   );
 }
 
@@ -107,12 +107,10 @@ export function isRoleAdmin(role?: string | null): boolean {
  */
 export function isRoleHR(role?: string | null): boolean {
   if (!role) return false;
-  const normalized = role.trim().toUpperCase();
+  const normalized = role.trim().toUpperCase().replace(/[\s_-]+/g, "_");
   return (
     normalized === "HR" ||
-    normalized === "HR ADMIN" ||
     normalized === "HR_ADMIN" ||
-    normalized === "HR MANAGER" ||
     normalized === "HR_MANAGER"
   );
 }
@@ -122,10 +120,9 @@ export function isRoleHR(role?: string | null): boolean {
  */
 export function isRoleManager(role?: string | null): boolean {
   if (!role) return false;
-  const normalized = role.trim().toUpperCase();
+  const normalized = role.trim().toUpperCase().replace(/[\s_-]+/g, "_");
   return (
     normalized === "MANAGER" ||
-    normalized === "HR MANAGER" ||
     normalized === "HR_MANAGER" ||
     normalized === "MANAGEMENT"
   );
@@ -136,7 +133,7 @@ export function isRoleManager(role?: string | null): boolean {
  */
 export function isRoleEmployee(role?: string | null): boolean {
   if (!role) return false;
-  const normalized = role.trim().toUpperCase();
+  const normalized = role.trim().toUpperCase().replace(/[\s_-]+/g, "_");
   return normalized === "EMPLOYEE" || normalized === "STAFF";
 }
 
@@ -146,11 +143,9 @@ export function isRoleEmployee(role?: string | null): boolean {
 export function normalizeUserRole(role?: string | null): UserRole {
   if (!role) return "Employee";
   if (isRoleSuperAdmin(role)) return "Super Admin";
-  const upper = role.trim().toUpperCase();
-  if (upper === "HR ADMIN" || upper === "HR_ADMIN") return "HR Admin";
-  if (upper === "HR MANAGER" || upper === "HR_MANAGER") return "HR Manager";
-  if (upper === "ADMIN") return "HR Admin";
-  if (upper === "MANAGER") return "HR Manager";
-  if (upper === "EMPLOYEE") return "Employee";
+  const normalized = role.trim().toUpperCase().replace(/[\s_-]+/g, "_");
+  if (normalized === "HR_ADMIN" || normalized === "ADMIN") return "HR Admin";
+  if (normalized === "HR_MANAGER" || normalized === "MANAGER") return "HR Manager";
+  if (normalized === "EMPLOYEE" || normalized === "STAFF") return "Employee";
   return (role as UserRole) || "Employee";
 }

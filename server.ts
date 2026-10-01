@@ -452,10 +452,15 @@ async function startServer() {
     // Update query
     user.status = "APPROVED";
     user.role = targetRole;
+    user.assignedRole = targetRole;
     user.statusUpdatedAt = nowIso;
     user.reviewedAt = nowIso;
+    user.reviewTime = nowIso;
+    user.processedAt = nowIso;
     user.actionByUserId = auditorEmail;
     user.reviewedBy = auditorEmail;
+    user.processedBy = auditorEmail;
+    user.remarks = req.body.remarks || req.body.reason || null;
     user.notificationUnread = true;
 
     saveStoredUsers(users);
@@ -464,7 +469,7 @@ async function startServer() {
       action: "Request Approved",
       targetUser: user.email,
       executedBy: auditorEmail,
-      details: `Access request approved by ${auditorEmail}. Assigned Role: ${targetRole}`,
+      details: req.body.remarks || req.body.reason || `Access request approved by ${auditorEmail}. Assigned Role: ${targetRole}`,
     });
 
     return res.json({ success: true, user });
@@ -495,8 +500,13 @@ async function startServer() {
     user.status = "REJECTED";
     user.statusUpdatedAt = nowIso;
     user.reviewedAt = nowIso;
+    user.reviewTime = nowIso;
+    user.processedAt = nowIso;
     user.actionByUserId = auditorEmail;
     user.reviewedBy = auditorEmail;
+    user.processedBy = auditorEmail;
+    user.rejectionReason = req.body.reason || req.body.rejectionReason || req.body.remarks || null;
+    user.remarks = req.body.remarks || req.body.reason || null;
     user.notificationUnread = true;
 
     saveStoredUsers(users);
@@ -505,7 +515,7 @@ async function startServer() {
       action: "Request Rejected",
       targetUser: user.email,
       executedBy: auditorEmail,
-      details: `Access request rejected by ${auditorEmail}. Status set to REJECTED.`,
+      details: req.body.remarks || req.body.reason || `Access request rejected by ${auditorEmail}. Status set to REJECTED.`,
     });
 
     return res.json({ success: true, user });

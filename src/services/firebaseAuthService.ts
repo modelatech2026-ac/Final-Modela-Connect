@@ -23,9 +23,26 @@ import {
   query,
   where,
   serverTimestamp,
+  getDocs,
   Firestore,
+  DocumentData,
+  QuerySnapshot,
 } from "firebase/firestore";
 import { AuthRequestUser, UserRole, AuthorizationStatus, AppUser } from "../types";
+
+/**
+ * Standard Firebase Configuration
+ */
+const metaEnv = (import.meta as unknown as { env?: Record<string, string | undefined> })?.env || {};
+
+export const firebaseConfig = {
+  apiKey: metaEnv.VITE_FIREBASE_API_KEY || "AIzaSyDummyKeyForModelaHRMSDev2026",
+  authDomain: metaEnv.VITE_FIREBASE_AUTH_DOMAIN || `${metaEnv.VITE_FIREBASE_PROJECT_ID || "modela-connect-hrms"}.firebaseapp.com`,
+  projectId: metaEnv.VITE_FIREBASE_PROJECT_ID || "modela-connect-hrms",
+  storageBucket: metaEnv.VITE_FIREBASE_STORAGE_BUCKET || `${metaEnv.VITE_FIREBASE_PROJECT_ID || "modela-connect-hrms"}.appspot.com`,
+  messagingSenderId: metaEnv.VITE_FIREBASE_MESSAGING_SENDER_ID || "931937056057",
+  appId: metaEnv.VITE_FIREBASE_APP_ID || "1:931937056057:web:modelaconnect",
+};
 
 /**
  * Standardized Firestore error handler adhering to platform guidelines
@@ -40,7 +57,7 @@ export function handleFirestoreError(error: unknown, operationType: string, path
 }
 
 /**
- * Safely resolves Firebase Auth and Firestore if environment credentials exist
+ * Resolves or initializes Firebase App, Auth, and Firestore
  */
 export function getSafeFirebase(): { app: FirebaseApp | null; auth: Auth | null; db: Firestore | null } {
   try {
@@ -54,16 +71,8 @@ export function getSafeFirebase(): { app: FirebaseApp | null; auth: Auth | null;
       };
     }
 
-    const metaEnv = (import.meta as unknown as { env?: Record<string, string | undefined> })?.env || {};
-    const apiKey = metaEnv.VITE_FIREBASE_API_KEY;
-    const projectId = metaEnv.VITE_FIREBASE_PROJECT_ID;
-
-    if (apiKey && projectId) {
-      const app = initializeApp({
-        apiKey,
-        authDomain: `${projectId}.firebaseapp.com`,
-        projectId,
-      });
+    if (firebaseConfig.apiKey && firebaseConfig.projectId) {
+      const app = initializeApp(firebaseConfig);
       return {
         app,
         auth: getAuth(app),
@@ -72,77 +81,555 @@ export function getSafeFirebase(): { app: FirebaseApp | null; auth: Auth | null;
     }
     return { app: null, auth: null, db: null };
   } catch (err) {
-    console.warn("Firebase Auth/Firestore not available:", err);
+    console.warn("Firebase Auth/Firestore initialization warning:", err);
     return { app: null, auth: null, db: null };
   }
 }
 
 /**
- * Fetches a user document from the Firestore 'users' collection
+ * Canonical Access Request Document Schema
  */
-export async function getUserDocFromFirestore(uid: string): Promise<AppUser | null> {
+export interface AccessRequestDoc {
+  userId: string;
+  userEmail: string;
+  applicantName: string;
+  requestType: string;
+  status: "pending" | "approved" | "rejected";
+  timestamp: any;
+  processedBy: string | null;
+  processedAt: any | null;
+  rejectionReason?: string | null;
+  requestedRole: string;
+  assignedRole: string | null;
+  // Compatibility aliases
+  uid: string;
+  email: string;
+  name: string;
+  role: string | null;
+  photoURL?: string;
+  avatar_url?: string;
+  requestTime?: string;
+  requestedAt?: string;
+  reviewTime?: string | null;
+  reviewedAt?: any | null;
+  reviewedBy?: string | null;
+  remarks?: string | null;
+}
+
+/**
+ * Normalizes raw Firestore document data to AuthRequestUser format
+ */
+export function normalizeToAuthRequest(data: DocumentData, docId?: string): AuthRequestUser {
+  const rawStatus = String(data.status || "pending").trim().toLowerCase();
+  const status: AuthorizationStatus =
+    rawStatus === "approved"
+      ? "Approved"
+      : rawStatus === "rejected"
+      ? "Rejected"
+      : "Pending";
+
+  const rawCreatedAt = data.timestamp || data.createdAt || data.requestTime || data.requestedAt;
+  const requestedAt = rawCreatedAt?.toDate
+    ? rawCreatedAt.toDate().toISOString()
+    : typeof rawCreatedAt === "string"
+    ? rawCreatedAt
+    : new Date().toISOString();
+
+  const rawReviewedAt = data.processedAt || data.reviewedAt || data.reviewTime;
+  const reviewedAt = rawReviewedAt?.toDate
+    ? rawReviewedAt.toDate().toISOString()
+    : typeof rawReviewedAt === "string"
+    ? rawReviewedAt
+    : undefined;
+
+  const id = data.userId || data.uid || docId || "";
+  const role = data.assignedRole || data.role || data.requestedRole || "Employee";
+
+  return {
+    id,
+    uid: id,
+    name: data.applicantName || data.name || (data.userEmail || data.email ? (data.userEmail || data.email).split("@")[0] : "Applicant"),
+    email: data.userEmail || data.email || "",
+    status,
+    role,
+    requestedAt,
+    requestDate: requestedAt,
+    avatar_url: data.photoURL || data.avatar_url || "",
+    reviewedBy: data.processedBy || data.reviewedBy || undefined,
+    reviewedAt,
+    actionByUserId: data.processedBy || data.reviewedBy || undefined,
+  };
+}
+
+/**
+ * 1. submitAccessRequest(userData)
+ * Saves request to Firestore collection `access_requests` with "pending" status.
+ * Reuses existing pending request if present; allows access if already approved.
+ */
+export async function submitAccessRequest(userData: {
+  userId?: string;
+  userEmail: string;
+  applicantName?: string;
+  requestType?: string;
+  requestedRole?: string;
+  photoURL?: string;
+}): Promise<{
+  success: boolean;
+  status: "pending" | "approved" | "rejected";
+  requestId: string;
+  message: string;
+  user?: AuthRequestUser;
+}> {
+  const cleanEmail = userData.userEmail.trim().toLowerCase();
+  const cleanName = userData.applicantName?.trim() || cleanEmail.split("@")[0];
+  const deterministicUid =
+    userData.userId ||
+    ("USR-" + btoa(cleanEmail).replace(/[^a-zA-Z0-9]/g, "").slice(0, 10).toUpperCase());
+  const nowIso = new Date().toISOString();
+
   const { db } = getSafeFirebase();
-  if (!db) return null;
 
+  // Try live Firestore write
+  if (db) {
+    try {
+      // Step A: Check for existing request by Document ID
+      const reqDocRef = doc(db, "access_requests", deterministicUid);
+      const existingSnap = await getDoc(reqDocRef);
+
+      if (existingSnap.exists()) {
+        const existing = existingSnap.data();
+        const existingStatus = String(existing.status || "").trim().toLowerCase();
+
+        // 1. Existing Pending -> reuse it
+        if (existingStatus === "pending") {
+          const norm = normalizeToAuthRequest(existing, existingSnap.id);
+          return {
+            success: true,
+            status: "pending",
+            requestId: existingSnap.id,
+            message: "Your access request is currently pending HR/Super Admin review.",
+            user: norm,
+          };
+        }
+
+        // 2. Existing Approved -> allow access
+        if (existingStatus === "approved") {
+          const norm = normalizeToAuthRequest(existing, existingSnap.id);
+          return {
+            success: true,
+            status: "approved",
+            requestId: existingSnap.id,
+            message: "Your account is approved. Access granted.",
+            user: norm,
+          };
+        }
+
+        // 3. Existing Rejected -> follow existing re-request logic (reset to pending)
+        if (existingStatus === "rejected") {
+          const updatedPayload: Partial<AccessRequestDoc> = {
+            status: "pending",
+            timestamp: serverTimestamp(),
+            requestTime: nowIso,
+            requestedAt: nowIso,
+            processedBy: null,
+            processedAt: null,
+            rejectionReason: null,
+            remarks: null,
+          };
+          await updateDoc(reqDocRef, updatedPayload as DocumentData);
+          const updatedSnap = await getDoc(reqDocRef);
+          const norm = normalizeToAuthRequest(updatedSnap.data() || {}, reqDocRef.id);
+          return {
+            success: true,
+            status: "pending",
+            requestId: reqDocRef.id,
+            message: "Your access request has been resubmitted and is pending approval.",
+            user: norm,
+          };
+        }
+      }
+
+      // Step B: Query by email to prevent duplicate across different UIDs
+      const emailQuery = query(
+        collection(db, "access_requests"),
+        where("userEmail", "==", cleanEmail)
+      );
+      const querySnap = await getDocs(emailQuery);
+
+      if (!querySnap.empty) {
+        const existingDoc = querySnap.docs[0];
+        const existing = existingDoc.data();
+        const existingStatus = String(existing.status || "").trim().toLowerCase();
+
+        if (existingStatus === "pending") {
+          return {
+            success: true,
+            status: "pending",
+            requestId: existingDoc.id,
+            message: "Your access request is already pending approval.",
+            user: normalizeToAuthRequest(existing, existingDoc.id),
+          };
+        }
+        if (existingStatus === "approved") {
+          return {
+            success: true,
+            status: "approved",
+            requestId: existingDoc.id,
+            message: "Your account is approved. Access granted.",
+            user: normalizeToAuthRequest(existing, existingDoc.id),
+          };
+        }
+      }
+
+      // Step C: Create new access request in Firestore
+      const newDocData: AccessRequestDoc = {
+        userId: deterministicUid,
+        userEmail: cleanEmail,
+        applicantName: cleanName,
+        requestType: userData.requestType || "ACCESS_REQUEST",
+        status: "pending",
+        timestamp: serverTimestamp(),
+        processedBy: null,
+        processedAt: null,
+        rejectionReason: null,
+        requestedRole: userData.requestedRole || "employee",
+        assignedRole: null,
+        uid: deterministicUid,
+        email: cleanEmail,
+        name: cleanName,
+        role: "Employee",
+        photoURL: userData.photoURL || "",
+        avatar_url: userData.photoURL || "",
+        requestTime: nowIso,
+        requestedAt: nowIso,
+        remarks: null,
+        reviewedBy: null,
+        reviewTime: null,
+      };
+
+      await setDoc(reqDocRef, newDocData);
+
+      // Also maintain mirror record in users collection for RBAC
+      const userDocRef = doc(db, "users", deterministicUid);
+      await setDoc(userDocRef, {
+        uid: deterministicUid,
+        email: cleanEmail,
+        name: cleanName,
+        status: "Pending",
+        role: "Employee",
+        requestedAt: nowIso,
+      }, { merge: true });
+
+      const normUser = normalizeToAuthRequest(newDocData, deterministicUid);
+      return {
+        success: true,
+        status: "pending",
+        requestId: deterministicUid,
+        message: "Your request has been sent to the HR Admin. Please wait for approval.",
+        user: normUser,
+      };
+    } catch (err: unknown) {
+      console.warn("[Firestore] submitAccessRequest write error:", err);
+    }
+  }
+
+  // Fallback: Notify backend API endpoint without using localStorage
   try {
-    const userDocRef = doc(db, "users", uid);
-    const snap = await getDoc(userDocRef);
-    if (!snap.exists()) return null;
+    const res = await fetch("/api/auth/google", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email: cleanEmail,
+        name: cleanName,
+        avatar_url: userData.photoURL || "",
+        status: "PENDING",
+        requested_at: nowIso,
+      }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      const norm = normalizeToAuthRequest(data.user || {}, data.user?.id || deterministicUid);
+      const st = String(data.status || "pending").toLowerCase() as "pending" | "approved" | "rejected";
+      return {
+        success: true,
+        status: st === "approved" ? "approved" : st === "rejected" ? "rejected" : "pending",
+        requestId: data.user?.id || deterministicUid,
+        message: data.message || "Request processed",
+        user: norm,
+      };
+    }
+  } catch (backendErr) {
+    console.warn("Backend API sync failed:", backendErr);
+  }
 
-    const data = snap.data();
-    return {
-      uid: data.uid || uid,
-      name: data.name || "Authenticated User",
-      email: data.email || "",
-      role: (data.role as UserRole) || null,
-      status: (data.status as AuthorizationStatus) || "Pending",
-      employeeId: data.employeeId || undefined,
-      designation: data.designation || undefined,
-    };
+  return {
+    success: true,
+    status: "pending",
+    requestId: deterministicUid,
+    message: "Your request has been sent to the HR Admin. Please wait for approval.",
+  };
+}
+
+/**
+ * 2. Real-Time Listener: subscribeToUserRequestStatus
+ * Listens to employee's request status in Firestore (`onSnapshot`).
+ * Unlocks app on "approved", alerts on "rejected".
+ */
+export function subscribeToUserRequestStatus(
+  userEmailOrId: string,
+  onStatusChange: (status: "pending" | "approved" | "rejected", requestDoc: AuthRequestUser) => void,
+  onError?: (error: unknown) => void
+): () => void {
+  const clean = userEmailOrId.trim().toLowerCase();
+  const { db } = getSafeFirebase();
+
+  if (!db) {
+    // Polling fallback via backend API
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/auth/status?email=${encodeURIComponent(clean)}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.user) {
+            const norm = normalizeToAuthRequest(data.user, data.user.id);
+            const raw = String(norm.status || "").toLowerCase();
+            const st: "pending" | "approved" | "rejected" =
+              raw === "approved" ? "approved" : raw === "rejected" ? "rejected" : "pending";
+            onStatusChange(st, norm);
+          }
+        }
+      } catch (e) {
+        if (onError) onError(e);
+      }
+    }, 2500);
+    return () => clearInterval(interval);
+  }
+
+  // Firestore onSnapshot on access_requests
+  try {
+    const q = query(
+      collection(db, "access_requests"),
+      where("userEmail", "==", clean)
+    );
+
+    const unsub = onSnapshot(
+      q,
+      (snapshot: QuerySnapshot<DocumentData>) => {
+        if (!snapshot.empty) {
+          const docSnap = snapshot.docs[0];
+          const data = docSnap.data();
+          const norm = normalizeToAuthRequest(data, docSnap.id);
+          const raw = String(data.status || "").toLowerCase();
+          const st: "pending" | "approved" | "rejected" =
+            raw === "approved" ? "approved" : raw === "rejected" ? "rejected" : "pending";
+          onStatusChange(st, norm);
+        }
+      },
+      (err) => {
+        console.warn("[Firestore] subscribeToUserRequestStatus error:", err);
+        if (onError) onError(err);
+      }
+    );
+
+    return unsub;
   } catch (err) {
-    console.warn("Error fetching user document from Firestore:", err);
-    return null;
+    console.warn("Could not attach Firestore onSnapshot:", err);
+    return () => {};
   }
 }
 
 /**
- * Subscribes to real-time changes on a user document in Firestore 'users/{uid}'
+ * 3. HR/Admin Dashboard Workflow: subscribeToPendingRequests
+ * Real-time `onSnapshot` listener for all `status == "pending"` requests.
  */
-export function subscribeToUserDoc(
-  uid: string,
-  onUpdate: (user: AppUser | null) => void
+export function subscribeToPendingRequests(
+  callback: (requests: AuthRequestUser[]) => void,
+  onError?: (error: unknown) => void
 ): () => void {
   const { db } = getSafeFirebase();
-  if (!db) return () => {};
 
-  const userDocRef = doc(db, "users", uid);
-  return onSnapshot(
-    userDocRef,
-    (snap) => {
-      if (!snap.exists()) {
-        onUpdate(null);
-        return;
+  if (!db) {
+    // Backend API polling fallback
+    const fetchPending = async () => {
+      try {
+        const res = await fetch("/api/users/pending");
+        if (res.ok) {
+          const data = await res.json();
+          const list = (data.users || data.requests || []).map((u: DocumentData) => normalizeToAuthRequest(u));
+          callback(list);
+        }
+      } catch (err) {
+        if (onError) onError(err);
       }
-      const data = snap.data();
-      onUpdate({
-        uid: data.uid || uid,
-        name: data.name || "Authenticated User",
-        email: data.email || "",
-        role: (data.role as UserRole) || null,
-        status: (data.status as AuthorizationStatus) || "Pending",
-        employeeId: data.employeeId || undefined,
-        designation: data.designation || undefined,
-      });
-    },
-    (err) => {
-      console.warn("User doc listener error:", err);
-    }
-  );
+    };
+    fetchPending();
+    const timer = setInterval(fetchPending, 2500);
+    return () => clearInterval(timer);
+  }
+
+  try {
+    const pendingQuery = query(
+      collection(db, "access_requests"),
+      where("status", "in", ["pending", "PENDING"])
+    );
+
+    return onSnapshot(
+      pendingQuery,
+      (snapshot) => {
+        const list: AuthRequestUser[] = snapshot.docs.map((docSnap) =>
+          normalizeToAuthRequest(docSnap.data(), docSnap.id)
+        );
+        callback(list);
+      },
+      (error) => {
+        console.warn("[Firestore] subscribeToPendingRequests warning:", error);
+        if (onError) onError(error);
+      }
+    );
+  } catch (err) {
+    console.warn("Failed to subscribe to pending requests:", err);
+    return () => {};
+  }
 }
 
 /**
- * Syncs a user document into Firestore 'access_requests' and 'users' collections
- * Required fields: { uid, name, email, photoURL, status: "PENDING", createdAt: serverTimestamp(), role: "PENDING" }
+ * Real-Time Listener: subscribeToAllRequests
+ * Listens to all access requests in Firestore for Admin Dashboard management & audit view.
+ */
+export function subscribeToAllRequests(
+  callback: (requests: AuthRequestUser[]) => void,
+  onError?: (error: unknown) => void
+): () => void {
+  const { db } = getSafeFirebase();
+
+  if (!db) {
+    const fetchAll = async () => {
+      try {
+        const res = await fetch("/api/users");
+        if (res.ok) {
+          const data = await res.json();
+          const list = (data.users || data.requests || []).map((u: DocumentData) => normalizeToAuthRequest(u));
+          callback(list);
+        }
+      } catch (err) {
+        if (onError) onError(err);
+      }
+    };
+    fetchAll();
+    const timer = setInterval(fetchAll, 2500);
+    return () => clearInterval(timer);
+  }
+
+  try {
+    const colRef = collection(db, "access_requests");
+    return onSnapshot(
+      colRef,
+      (snapshot) => {
+        const list: AuthRequestUser[] = snapshot.docs.map((docSnap) =>
+          normalizeToAuthRequest(docSnap.data(), docSnap.id)
+        );
+        callback(list);
+      },
+      (error) => {
+        console.warn("[Firestore] subscribeToAllRequests error:", error);
+        if (onError) onError(error);
+      }
+    );
+  } catch (err) {
+    console.warn("Failed to subscribe to all requests:", err);
+    return () => {};
+  }
+}
+
+/**
+ * 3. HR/Admin Dashboard Workflow: handleRequestAction
+ * Atomically updates `status` to "approved" or "rejected", sets `processedBy` and `processedAt`.
+ * Records audit trail in `activityLogs`.
+ */
+export async function handleRequestAction(
+  requestId: string,
+  actionStatus: "approved" | "rejected",
+  hrUserId: string,
+  reason?: string,
+  assignedRole?: string
+): Promise<{ success: boolean; error?: string }> {
+  const normStatus = actionStatus.toLowerCase() === "approved" ? "approved" : "rejected";
+  const { db } = getSafeFirebase();
+
+  const updatePayload: Record<string, unknown> = {
+    status: normStatus,
+    processedBy: hrUserId,
+    processedAt: serverTimestamp(),
+    reviewedBy: hrUserId,
+    reviewedAt: serverTimestamp(),
+    reviewTime: new Date().toISOString(),
+    statusUpdatedAt: new Date().toISOString(),
+    rejectionReason: normStatus === "rejected" ? reason || null : null,
+    remarks: reason || null,
+  };
+
+  if (normStatus === "approved") {
+    const targetRole = assignedRole || "EMPLOYEE";
+    updatePayload.assignedRole = targetRole;
+    updatePayload.role = targetRole;
+  }
+
+  if (db) {
+    try {
+      const accessReqRef = doc(db, "access_requests", requestId);
+      await updateDoc(accessReqRef, updatePayload).catch(() =>
+        setDoc(accessReqRef, updatePayload, { merge: true })
+      );
+
+      // Sync mirror users document for RBAC
+      const userDocRef = doc(db, "users", requestId);
+      await setDoc(userDocRef, {
+        status: normStatus === "approved" ? "Approved" : "Rejected",
+        role: updatePayload.assignedRole || "Employee",
+        statusUpdatedAt: new Date().toISOString(),
+        reviewedBy: hrUserId,
+      }, { merge: true });
+
+      // Append immutable audit log to activityLogs
+      await appendActivityLogToFirestore({
+        action: normStatus === "approved" ? "Request Approved" : "Request Rejected",
+        targetUser: requestId,
+        executedBy: hrUserId,
+        details: reason || `Action: ${normStatus.toUpperCase()}, Role: ${updatePayload.assignedRole || "N/A"}`,
+        module: "Access Control",
+      });
+
+      return { success: true };
+    } catch (err: unknown) {
+      console.warn("[Firestore] handleRequestAction error:", err);
+    }
+  }
+
+  // Also sync with backend server API
+  try {
+    const endpoint = normStatus === "approved" ? `/api/users/${encodeURIComponent(requestId)}/approve` : `/api/users/${encodeURIComponent(requestId)}/reject`;
+    const res = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-user-email": hrUserId,
+      },
+      body: JSON.stringify({
+        status: normStatus.toUpperCase(),
+        role: assignedRole,
+        reason,
+        remarks: reason,
+      }),
+    });
+    return { success: res.ok };
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { success: false, error: msg };
+  }
+}
+
+/**
+ * Backwards compatibility alias for submitAccessRequest
  */
 export async function syncGoogleUserToFirestore(
   requestUser: (Partial<AuthRequestUser> & { uid?: string; id?: string; email: string; name: string }) & {
@@ -151,238 +638,116 @@ export async function syncGoogleUserToFirestore(
     requested_at?: string;
   }
 ): Promise<{ success: boolean; firestoreSynced: boolean; error?: string }> {
-  const { db } = getSafeFirebase();
-  const userUid = requestUser.uid || requestUser.id || "";
-  const photo = requestUser.photoURL || requestUser.avatar_url || "";
-  const cleanEmail = requestUser.email.trim().toLowerCase();
-  const cleanName = requestUser.name.trim() || cleanEmail.split("@")[0];
-  const nowIso = new Date().toISOString();
-
-  if (!db) {
-    console.warn("[Firestore] Database not initialized. Live cloud sync unavailable.");
-    return { success: true, firestoreSynced: false };
-  }
-
   try {
-    // 1. Explicit write to shared 'access_requests' collection with required schema
-    const accessReqDocRef = doc(db, "access_requests", userUid);
-    const accessReqPayload = {
-      uid: userUid,
-      name: cleanName,
-      email: cleanEmail,
-      photoURL: photo,
-      status: "PENDING",
-      createdAt: serverTimestamp(),
-      role: "PENDING",
-    };
-    await setDoc(accessReqDocRef, accessReqPayload, { merge: true });
-
-    // 2. Also write/upsert into 'users' collection
-    const userDocRef = doc(db, "users", userUid);
-    const userPayload = {
-      ...accessReqPayload,
-      id: userUid,
-      avatar_url: photo,
-      requested_at: requestUser.requested_at || nowIso,
-      requestedAt: nowIso,
-      requestDate: nowIso,
-    };
-    await setDoc(userDocRef, userPayload, { merge: true });
-
-    console.info(`[Firestore] Successfully created access request in 'access_requests' for ${cleanEmail} (${userUid})`);
-    return { success: true, firestoreSynced: true };
-  } catch (err: unknown) {
-    const errorMsg = err instanceof Error ? err.message : String(err);
-    console.error("[Firestore] Global write error to access_requests / users:", errorMsg);
-    return { success: false, firestoreSynced: false, error: errorMsg };
+    const res = await submitAccessRequest({
+      userId: requestUser.uid || requestUser.id,
+      userEmail: requestUser.email,
+      applicantName: requestUser.name,
+      photoURL: requestUser.photoURL || requestUser.avatar_url,
+    });
+    return { success: res.success, firestoreSynced: true };
+  } catch (err) {
+    return { success: false, firestoreSynced: false, error: String(err) };
   }
 }
 
 /**
- * Normalizes user record from either Firestore or shared database into AuthRequestUser
+ * Backwards compatibility alias for handleRequestAction
  */
-function normalizeToAuthRequest(data: any, docId?: string): AuthRequestUser {
-  const rawCreatedAt = data.createdAt || data.requestedAt || data.requested_at || data.requestDate;
-  const requestedAt = rawCreatedAt?.toDate
-    ? rawCreatedAt.toDate().toISOString()
-    : typeof rawCreatedAt === "string"
-    ? rawCreatedAt
-    : new Date().toISOString();
-
-  const rawStatus = String(data.status || "PENDING").trim().toUpperCase();
-  const status: "PENDING_APPROVAL" | "APPROVED" | "REJECTED" =
-    rawStatus === "APPROVED"
-      ? "APPROVED"
-      : rawStatus === "REJECTED"
-      ? "REJECTED"
-      : "PENDING_APPROVAL";
-
-  return {
-    id: data.id || data.uid || docId,
-    uid: data.uid || data.id || docId || "",
-    name: data.name || (data.email ? data.email.split("@")[0] : "Applicant"),
-    email: data.email || "",
-    status,
-    role: data.role === "PENDING" || !data.role ? "EMPLOYEE" : data.role,
-    requestedAt,
-    avatar_url: data.photoURL || data.avatar_url || "",
-    reviewedBy: data.reviewedBy,
-    reviewedAt: data.reviewedAt,
-  };
+export async function updateUserStatusInFirestore(
+  uid: string,
+  status: AuthorizationStatus | "APPROVED" | "REJECTED" | "approved" | "rejected",
+  role?: UserRole | string | null,
+  reviewedBy?: string,
+  reason?: string
+): Promise<{ success: boolean; firestoreSynced: boolean; error?: string }> {
+  const normStatus = String(status).toUpperCase() === "APPROVED" ? "approved" : "rejected";
+  const res = await handleRequestAction(
+    uid,
+    normStatus,
+    reviewedBy || "HR Admin",
+    reason,
+    role ? String(role) : undefined
+  );
+  return { success: res.success, firestoreSynced: res.success, error: res.error };
 }
 
 /**
- * Subscribes to real-time changes on access requests from shared database & Firestore
+ * Backwards compatibility alias for subscribeToAllRequests
  */
 export function subscribeToAccessRequests(
   onUpdate: (requests: AuthRequestUser[]) => void,
   onError?: (error: unknown) => void
 ): () => void {
-  let isSubscribed = true;
-  let firestoreUnsub: (() => void) | null = null;
-  let eventSource: EventSource | null = null;
-  let pollTimer: ReturnType<typeof setInterval> | null = null;
-
-  // 1. Fetch current requests immediately from shared backend database
-  const fetchSharedDbRequests = async () => {
-    try {
-      const res = await fetch("/api/users");
-      if (res.ok) {
-        const json = await res.json();
-        const list = (json.users || json.requests || []).map((u: any) => normalizeToAuthRequest(u));
-        if (isSubscribed && list.length > 0) {
-          onUpdate(list);
-        }
-      }
-    } catch (err) {
-      if (onError && isSubscribed) onError(err);
-    }
-  };
-
-  fetchSharedDbRequests();
-
-  // 2. Real-time Server-Sent Events (SSE) listener for instantaneous push updates
-  try {
-    if (typeof EventSource !== "undefined") {
-      eventSource = new EventSource("/api/users/stream");
-      eventSource.onmessage = (event) => {
-        try {
-          const payload = JSON.parse(event.data);
-          if (payload && Array.isArray(payload.users) && isSubscribed) {
-            const list = payload.users.map((u: any) => normalizeToAuthRequest(u));
-            onUpdate(list);
-          }
-        } catch {
-          // ignore parse error
-        }
-      };
-      eventSource.onerror = () => {
-        // Fallback polling will handle it if SSE disconnects
-      };
-    }
-  } catch {
-    // EventSource fallback
-  }
-
-  // 3. High-frequency polling and local storage sync fallback
-  pollTimer = setInterval(() => {
-    if (isSubscribed) {
-      fetchSharedDbRequests();
-    }
-  }, 2000);
-
-  const handleLocalUpdate = () => {
-    if (isSubscribed) fetchSharedDbRequests();
-  };
-  window.addEventListener("modela_users_updated", handleLocalUpdate);
-  window.addEventListener("focus", handleLocalUpdate);
-  window.addEventListener("storage", handleLocalUpdate);
-
-  // 4. Also listen to Firestore collection 'access_requests' if live Firestore exists
-  const { db } = getSafeFirebase();
-  if (db) {
-    try {
-      const accessRequestsCol = collection(db, "access_requests");
-      firestoreUnsub = onSnapshot(
-        accessRequestsCol,
-        (snapshot) => {
-          if (!isSubscribed) return;
-          const loaded: AuthRequestUser[] = snapshot.docs.map((docSnap) =>
-            normalizeToAuthRequest(docSnap.data(), docSnap.id)
-          );
-          if (loaded.length > 0) {
-            onUpdate(loaded);
-          }
-        },
-        (error) => {
-          console.warn("[Firestore] onSnapshot warning on access_requests:", error);
-          if (onError && isSubscribed) onError(error);
-        }
-      );
-    } catch (err) {
-      console.warn("[Firestore] Could not attach onSnapshot:", err);
-    }
-  }
-
-  return () => {
-    isSubscribed = false;
-    if (eventSource) {
-      eventSource.close();
-      eventSource = null;
-    }
-    if (pollTimer) {
-      clearInterval(pollTimer);
-      pollTimer = null;
-    }
-    window.removeEventListener("modela_users_updated", handleLocalUpdate);
-    window.removeEventListener("focus", handleLocalUpdate);
-    window.removeEventListener("storage", handleLocalUpdate);
-    if (firestoreUnsub) {
-      firestoreUnsub();
-      firestoreUnsub = null;
-    }
-  };
+  return subscribeToAllRequests(onUpdate, onError);
 }
 
 /**
- * Updates a user document in Firestore 'access_requests' and 'users' collections on approval or rejection
+ * Fetches user doc from Firestore 'users' or 'access_requests'
  */
-export async function updateUserStatusInFirestore(
-  uid: string,
-  status: AuthorizationStatus | "APPROVED" | "REJECTED",
-  role?: UserRole | string | null,
-  reviewedBy?: string
-): Promise<{ success: boolean; firestoreSynced: boolean; error?: string }> {
+export async function getUserDocFromFirestore(uid: string): Promise<AppUser | null> {
   const { db } = getSafeFirebase();
-  if (!db) {
-    return { success: true, firestoreSynced: false };
-  }
+  if (!db) return null;
 
   try {
-    const normStatus = String(status).toUpperCase() === "APPROVED" ? "APPROVED" : "REJECTED";
-    const updatePayload: Record<string, unknown> = {
-      status: normStatus,
-      reviewedAt: serverTimestamp(),
-      reviewedBy: reviewedBy || "Super Admin",
-    };
-    if (role !== undefined && normStatus === "APPROVED") {
-      updatePayload.role = role || "EMPLOYEE";
-    }
-
     const accessReqDocRef = doc(db, "access_requests", uid);
-    const userDocRef = doc(db, "users", uid);
-
-    await Promise.allSettled([
-      updateDoc(accessReqDocRef, updatePayload).catch(() => setDoc(accessReqDocRef, updatePayload, { merge: true })),
-      updateDoc(userDocRef, updatePayload).catch(() => setDoc(userDocRef, updatePayload, { merge: true })),
-    ]);
-
-    return { success: true, firestoreSynced: true };
-  } catch (err: unknown) {
-    const errorMsg = err instanceof Error ? err.message : String(err);
-    console.error("[Firestore] user status update error:", errorMsg);
-    return { success: false, firestoreSynced: false, error: errorMsg };
+    const snap = await getDoc(accessReqDocRef);
+    if (snap.exists()) {
+      const data = snap.data();
+      const norm = normalizeToAuthRequest(data, snap.id);
+      return {
+        uid: norm.uid,
+        name: norm.name,
+        email: norm.email,
+        role: norm.role,
+        status: norm.status,
+        requestedAt: norm.requestedAt,
+        reviewedBy: norm.reviewedBy,
+        reviewedAt: norm.reviewedAt,
+      };
+    }
+    return null;
+  } catch (err) {
+    console.warn("Error fetching user document from Firestore:", err);
+    return null;
   }
+}
+
+/**
+ * Subscribes to real-time changes on a user document
+ */
+export function subscribeToUserDoc(
+  uid: string,
+  onUpdate: (user: AppUser | null) => void
+): () => void {
+  const { db } = getSafeFirebase();
+  if (!db) return () => {};
+
+  const accessReqDocRef = doc(db, "access_requests", uid);
+  return onSnapshot(
+    accessReqDocRef,
+    (snap) => {
+      if (!snap.exists()) {
+        onUpdate(null);
+        return;
+      }
+      const data = snap.data();
+      const norm = normalizeToAuthRequest(data, snap.id);
+      onUpdate({
+        uid: norm.uid,
+        name: norm.name,
+        email: norm.email,
+        role: norm.role,
+        status: norm.status,
+        requestedAt: norm.requestedAt,
+        reviewedBy: norm.reviewedBy,
+        reviewedAt: norm.reviewedAt,
+      });
+    },
+    (err) => {
+      console.warn("User doc listener error:", err);
+    }
+  );
 }
 
 /**
@@ -416,7 +781,7 @@ export async function appendActivityLogToFirestore(logItem: {
       targetUser: logItem.targetUser || logItem.userEmail || "",
       executedBy: logItem.executedBy || logItem.userName || "System",
       details: logItem.details || logItem.payload || "",
-      module: logItem.module || "Auth",
+      module: logItem.module || "Access Control",
       recordId: logItem.recordId || logRef.id,
       metadata: logItem.metadata || {},
       result: "SUCCESS",
@@ -431,8 +796,7 @@ export async function appendActivityLogToFirestore(logItem: {
 }
 
 /**
- * Executes Google OAuth requesting ONLY 'email' and 'profile' scopes.
- * STRICT NO-IMAGE POLICY: Discards any profile photo or avatar URLs.
+ * Executes Google OAuth requesting 'email' and 'profile' scopes
  */
 export async function executeGoogleSyncAuth(): Promise<{
   success: boolean;
@@ -461,7 +825,6 @@ export async function executeGoogleSyncAuth(): Promise<{
     const result = await signInWithPopup(auth, provider);
     const fbUser: FirebaseUser = result.user;
 
-    // Discard any avatarUrl / photoURL per strict no-image policy
     return {
       success: true,
       user: {

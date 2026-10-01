@@ -12,26 +12,44 @@ service cloud.firestore {
 
     function isSuperAdmin() {
       return (isSignedIn() && (
-        request.auth.token.email in ['modelatech2026@gmail.com', 'sushoovandas@gmail.com', 'YOUR_EXACT_GOOGLE_EMAIL@gmail.com'] ||
+        request.auth.token.email in ['modelatech2026@gmail.com', 'sushoovandas@gmail.com', 'YOUR_EXACT_GOOGLE_EMAIL@gmail.com', 'your_exact_google_email@gmail.com'] ||
         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['Super Admin', 'SUPER_ADMIN', 'SUPERADMIN'])
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['Super Admin', 'SUPER_ADMIN', 'SUPERADMIN', 'super_admin']) ||
+        (exists(/databases/$(database)/documents/access_requests/$(request.auth.uid)) &&
+          get(/databases/$(database)/documents/access_requests/$(request.auth.uid)).data.assignedRole in ['Super Admin', 'SUPER_ADMIN', 'SUPERADMIN', 'super_admin'])
       ));
     }
 
     function isHRAdmin() {
-      return isSuperAdmin() || (isSignedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['HR Admin', 'Super Admin']));
+      return isSuperAdmin() || (isSignedIn() && (
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+          (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['HR Admin', 'Super Admin', 'HR_ADMIN', 'SUPER_ADMIN', 'HR Manager', 'HR_MANAGER', 'hr_admin', 'super_admin', 'admin', 'ADMIN'])) ||
+        (exists(/databases/$(database)/documents/access_requests/$(request.auth.uid)) &&
+          (get(/databases/$(database)/documents/access_requests/$(request.auth.uid)).data.assignedRole in ['HR Admin', 'Super Admin', 'HR_ADMIN', 'SUPER_ADMIN', 'HR Manager', 'HR_MANAGER', 'hr_admin', 'super_admin', 'admin', 'ADMIN'] ||
+           get(/databases/$(database)/documents/access_requests/$(request.auth.uid)).data.role in ['HR Admin', 'Super Admin', 'HR_ADMIN', 'SUPER_ADMIN', 'HR Manager', 'HR_MANAGER', 'hr_admin', 'super_admin', 'admin', 'ADMIN']))
+      ));
     }
 
-    // Access Requests: Public/unauthenticated create with PENDING status, Super Admin full control
+    // Access Requests: Single source of truth for login/access requests
     match /access_requests/{requestId} {
-      // Allow unauthenticated/pending users to create an access request with status: "PENDING"
-      allow create: if request.resource.data.status == "PENDING";
-      // Allow Super Admin full read/write/update/delete access, or applicant to re-sync pending status
-      allow update: if isSuperAdmin() || (resource.data.status == "PENDING" && request.resource.data.status == "PENDING") || (isSignedIn() && (request.auth.uid == requestId || request.auth.uid == resource.data.uid));
+      // Allow users to create their own access request with status: "pending" / "PENDING"
+      allow create: if request.resource.data.status in ["pending", "PENDING"];
+      // Allow HR/Super Admin full management, or applicant to re-sync pending status on their own record
+      allow update: if isHRAdmin() || (
+        (resource.data.status in ["pending", "PENDING"] && request.resource.data.status in ["pending", "PENDING"]) &&
+        (isSignedIn() && (request.auth.uid == requestId || request.auth.uid == resource.data.userId || request.auth.uid == resource.data.uid))
+      );
       allow delete: if isSuperAdmin();
-      // Allow Super Admin to read all, or applicant user to read their own request
-      allow read: if isSuperAdmin() || (isSignedIn() && (request.auth.uid == requestId || request.auth.uid == resource.data.uid));
+      // Allow HR Admin / Super Admin to read all, or applicant user to read their own request
+      allow read: if isHRAdmin() || (
+        isSignedIn() && (
+          request.auth.uid == requestId ||
+          request.auth.uid == resource.data.userId ||
+          request.auth.uid == resource.data.uid ||
+          request.auth.token.email == resource.data.userEmail ||
+          request.auth.token.email == resource.data.email
+        )
+      );
     }
 
     // Auxiliary pending_requests collection

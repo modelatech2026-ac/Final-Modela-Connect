@@ -240,6 +240,15 @@ export const MatrixLandingPage: React.FC = () => {
           <p className="text-slate-300 text-sm leading-relaxed max-w-sm mx-auto">
             Your request has been rejected by the HR Admin.
           </p>
+          <div className="pt-2">
+            <button
+              type="button"
+              onClick={handleBackToLogin}
+              className="w-full py-3 px-4 bg-slate-700 hover:bg-slate-600 active:bg-slate-800 text-white font-medium rounded-xl text-sm transition-colors cursor-pointer shadow-sm"
+            >
+              Back to Login
+            </button>
+          </div>
         </div>
       )}
 
